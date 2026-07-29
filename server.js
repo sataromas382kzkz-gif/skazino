@@ -5,12 +5,17 @@ import { Telegraf, Markup } from 'telegraf';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const isVercel = process.env.VERCEL === '1';
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const users = new Map();
 
 app.use(express.json());
 app.use(express.static('public'));
+
+// Vercel передаёт запросы в этот Express-инстанс через serverless function.
+// Явный fallback гарантирует, что корень домена всегда отдаёт Mini App.
+app.get('/', (req, res) => res.sendFile('index.html', { root: 'public' }));
 
 function verifyTelegramInitData(raw) {
   if (!raw || !botToken) return null;
@@ -21,7 +26,7 @@ function verifyTelegramInitData(raw) {
     .filter(([key]) => key !== 'hash')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
-    .join('\\n');
+    .join('\n');
   const secret = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calculated = crypto.createHmac('sha256', secret).update(dataCheckString).digest('hex');
   if (hash.length !== calculated.length || !crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(calculated))) return null;
@@ -61,7 +66,7 @@ app.post('/api/daily', (req, res) => {
   res.json({ profile, message: 'Получено ⭐25' });
 });
 
-if (botToken) {
+if (botToken && !isVercel) {
   const bot = new Telegraf(botToken);
   bot.start(ctx => {
     const button = appUrl
@@ -78,8 +83,12 @@ if (botToken) {
   console.log('Telegram bot started');
   process.once('SIGINT', () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
-} else {
+} else if (!botToken) {
   console.log('BOT_TOKEN не задан: запущен только Mini App в demo-режиме');
+} else if (isVercel) {
+  console.log('Vercel: бот не запускается в web-request процессе');
 }
 
-app.listen(port, () => console.log(`Mini App: http://localhost:${port}`));
+// Vercel использует экспортированный handler, а локально запускаем обычный HTTP-сервер.
+if (!isVercel) app.listen(port, () => console.log(`Mini App: http://localhost:${port}`));
+export default app;
