@@ -1,6 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 
 const app = express();
@@ -11,11 +16,13 @@ const appUrl = process.env.APP_URL;
 const users = new Map();
 
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Vercel передаёт запросы в этот Express-инстанс через serverless function.
 // Явный fallback гарантирует, что корень домена всегда отдаёт Mini App.
-app.get('/', (req, res) => res.sendFile('index.html', { root: 'public' }));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 function verifyTelegramInitData(raw) {
   if (!raw || !botToken) return null;
