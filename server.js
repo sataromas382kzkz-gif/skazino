@@ -53,8 +53,37 @@ function currentUser(req) {
 
 function getProfile(tgUser) {
   const id = String(tgUser.id);
-  if (!users.has(id)) users.set(id, { id, name: tgUser.first_name || 'Пользователь', stars: 100, tasks: 0 });
+  if (!users.has(id)) users.set(id, {
+    id,
+    name: tgUser.first_name || 'Пользователь',
+    stars: 100,
+    tasks: 0,
+    gifts: { bear: 0, rose: 0 }
+  });
   return users.get(id);
+}
+
+const cases = {
+  freebie: {
+    name: 'Халява',
+    price: 100,
+    rewards: [
+      { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70 },
+      { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 20 },
+      { label: '🧸 Мишка Telegram', type: 'bear', chance: 5 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 4 },
+      { label: '⭐ 100 звёзд', type: 'stars', amount: 100, chance: 1 }
+    ]
+  }
+};
+
+function drawReward(rewards) {
+  const roll = Math.random() * 100;
+  let total = 0;
+  return rewards.find(reward => {
+    total += reward.chance;
+    return roll < total;
+  });
 }
 
 app.get('/api/me', (req, res) => {
@@ -71,6 +100,25 @@ app.post('/api/daily', (req, res) => {
   profile.stars += 25;
   profile.tasks += 1;
   res.json({ profile, message: 'Получено ⭐25' });
+});
+
+app.get('/api/cases', (req, res) => {
+  res.json(Object.entries(cases).map(([id, item]) => ({ id, ...item })));
+});
+
+app.post('/api/cases/:caseId/open', (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  const selectedCase = cases[req.params.caseId];
+  if (!selectedCase) return res.status(404).json({ error: 'Кейс не найден' });
+  const profile = getProfile(tgUser);
+  if (profile.stars < selectedCase.price) return res.status(400).json({ error: 'Недостаточно звёзд' });
+
+  const reward = drawReward(selectedCase.rewards);
+  profile.stars -= selectedCase.price;
+  if (reward.type === 'stars') profile.stars += reward.amount;
+  else profile.gifts[reward.type] += 1;
+  res.json({ profile, reward });
 });
 
 if (botToken && !isVercel) {
