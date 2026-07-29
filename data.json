@@ -1,0 +1,99 @@
+{
+  "cases": [
+    {
+      "id": "starter",
+      "title": "Стартовый",
+      "emoji": "🎁",
+      "cost": 50,
+      "items": [
+        {
+          "title": "5 звёзд",
+          "emoji": "⭐",
+          "kind": "stars",
+          "value": 5,
+          "chance": 65
+        },
+        {
+          "title": "10 звёзд",
+          "emoji": "🌟",
+          "kind": "stars",
+          "value": 10,
+          "chance": 25
+        },
+        {
+          "title": "Мишка",
+          "emoji": "🧸",
+          "kind": "gift",
+          "value": 0,
+          "chance": 10
+        }
+      ]
+    },
+    {
+      "id": "premium",
+      "title": "Премиум",
+      "emoji": "💎",
+      "cost": 150,
+      "items": [
+        {
+          "title": "50 звёзд",
+          "emoji": "🌟",
+          "kind": "stars",
+          "value": 50,
+          "chance": 45
+        },
+        {
+          "title": "Сердце",
+          "emoji": "💝",
+          "kind": "gift",
+          "value": 0,
+          "chance": 35
+        },
+        {
+          "title": "200 звёзд",
+          "emoji": "💫",
+          "kind": "stars",
+          "value": 200,
+          "chance": 20
+        }
+      ]
+    },
+    {
+      "id": "legendary",
+      "title": "Легендарный",
+      "emoji": "👑",
+      "cost": 500,
+      "items": [
+        {
+          "title": "100 звёзд",
+          "emoji": "🌟",
+          "kind": "stars",
+          "value": 100,
+          "chance": 50
+        },
+        {
+          "title": "Ракета",
+          "emoji": "🚀",
+          "kind": "gift",
+          "value": 0,
+          "chance": 35
+        },
+        {
+          "title": "500 звёзд",
+          "emoji": "💫",
+          "kind": "stars",
+          "value": 500,
+          "chance": 15
+        }
+      ]
+    }
+  ],
+  "promoCodes": {
+    "WELCOME": {
+      "reward": 100,
+      "maxUses": 0,
+      "uses": 0
+    }
+  },
+  "users": {}
+}
