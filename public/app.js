@@ -38,18 +38,19 @@ function escapeHtml(value) {
 }
 function rewardMarkup(reward) {
   const label=escapeHtml(reward?.label || 'Приз');
-  const image=rewardImage(reward);
-  // Всегда оставляем два одинаковых ряда: поэтому призы с картинкой и без неё
-  // имеют одинаковую высоту и подпись находится в одном месте.
-  // Файлов изображений для наград в проекте нет: не делаем запросов к отсутствующим URL.
   // Emoji показывается одинаково в превью и в окне выигранного приза.
+  // Не обращаемся к отсутствующим файлам изображений: это останавливало рендер кейса.
   return `<span class="reel-placeholder" aria-hidden="true">${rewardEmoji(reward)}</span><span>${label}</span>`;
 }
 function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
-  const card=document.createElement('article'); card.className='case-card'; card.innerHTML=`<div class="case-art">🎁</div><h3>${item.name}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>Открыть кейс</button>`;
+  const chances=item.rewards.map(reward => `<div class="reward-row"><span>${rewardEmoji(reward)} ${escapeHtml(reward.label)}</span><b>${reward.chance}%</b></div>`).join('');
+  const card=document.createElement('article');
+  card.className='case-card';
+  card.innerHTML=`<div class="case-art">🎁</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><div class="reward-list">${chances}</div><button>Открыть кейс</button>`;
   const button=card.querySelector('button');
-  button.onclick=()=>openCase(item, button); $('cases').append(card);
+  button.onclick=()=>openCase(item, button);
+  $('cases').append(card);
 }
 async function openCase(item, button) {
   if (!profile || (profile.caseStars ?? profile.stars ?? 0) < item.price) return toast('Недостаточно звёзд для открытия кейса');
