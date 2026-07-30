@@ -14,8 +14,18 @@ function render(user, data) {
   $('daily').disabled=receivedRecently; $('daily').textContent=receivedRecently?'Получено':'Забрать';
 }
 $('daily').onclick=async()=>{ try { const data=await request('/api/daily',{method:'POST'}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
+function rewardImage(reward) {
+  return reward.image || reward.imageUrl || reward.imagePath || null;
+}
+function rewardMarkup(reward) {
+  const image=rewardImage(reward);
+  return image
+    ? `<img src="${image}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>${reward.label}</span>`
+    : `<span>${reward.label}</span>`;
+}
 function showCase(item) {
-  const card=document.createElement('article'); card.className='case-card'; card.innerHTML=`<div class="case-art">🎁</div><h3>${item.name}</h3><div class="case-price">⭐ ${item.price}</div><button>Открыть кейс</button>`;
+  const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
+  const card=document.createElement('article'); card.className='case-card'; card.innerHTML=`<div class="case-art">🎁</div><h3>${item.name}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>Открыть кейс</button>`;
   const button=card.querySelector('button');
   button.onclick=()=>openCase(item, button); $('cases').append(card);
 }
@@ -24,38 +34,33 @@ async function openCase(item, button) {
   button.disabled=true;
   const modal=$('caseModal'); modal.classList.add('visible'); $('caseTitle').textContent=item.name; $('rewardText').textContent=''; $('closeModal').disabled=true;
   const reel=$('reel'); reel.classList.remove('win');
-  reel.innerHTML='<div class="reel-pointer"></div><div class="reel-track"></div>';
+  reel.innerHTML='<div class="reel-track"></div>';
   const reelTrack=reel.querySelector('.reel-track');
   $('rewardText').textContent='Разыгрываем приз...';
 
-  // Сначала фиксируем результат на сервере, затем прокручиваем ленту к нему.
-  // Поэтому последний лот всегда совпадает с реально выданной наградой.
   try {
     const data=await request(`/api/cases/${item.id}/open`,{method:'POST'});
-    const winningIndex=29;
+    const winningIndex=24;
     const track=[];
     for(let i=0;i<winningIndex;i++) track.push(item.rewards[Math.floor(Math.random()*item.rewards.length)]);
     track.push(data.reward);
     track.forEach(reward=>{
       const lot=document.createElement('span');
-      lot.textContent=reward.label;
+      lot.className='reel-lot';
+      lot.innerHTML=rewardMarkup(reward);
       reelTrack.append(lot);
     });
 
-    const lotWidth=reelTrack.firstElementChild.getBoundingClientRect().width;
+    // Простая и надёжная анимация: transform задаётся прямо на элементе.
+    const lotWidth=reelTrack.firstElementChild.offsetWidth;
     const gap=20;
     const step=lotWidth+gap;
-    // Учитываем внутренний отступ ленты, чтобы приз остановился под маркером.
-    const targetOffset=reel.clientWidth/2-lotWidth/2-20-winningIndex*step;
-    reelTrack.classList.add('spinning');
-    // CSS transition надёжнее Web Animations API в Telegram WebView.
-    // Два кадра нужны, чтобы браузер сначала применил начальную позицию.
-    reelTrack.style.transform='translateX(0)';
-    void reelTrack.offsetWidth;
-    await new Promise(resolve=>requestAnimationFrame(()=>{
-      reelTrack.style.transform=`translateX(${targetOffset}px)`;
-      setTimeout(resolve,3700);
-    }));
+    const targetOffset=(reel.offsetWidth-lotWidth)/2-winningIndex*step;
+    reelTrack.style.transform='translate3d(0,0,0)';
+    reelTrack.offsetWidth;
+    reelTrack.style.transition='transform 3.8s cubic-bezier(.12,.75,.18,1)';
+    requestAnimationFrame(()=>{ reelTrack.style.transform=`translate3d(${targetOffset}px,0,0)`; });
+    await new Promise(resolve=>setTimeout(resolve,4000));
     reel.classList.add('win');
     $('rewardText').textContent=`Вы получили: ${data.reward.label}`;
     render({first_name:profile.name},data.profile);

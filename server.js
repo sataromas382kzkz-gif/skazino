@@ -94,11 +94,11 @@ const cases = {
     name: 'КЕЙС ХАЛЯВА',
     price: 100,
     rewards: [
-      { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70 },
-      { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 20 },
-      { label: '🧸 Мишка Telegram', type: 'bear', chance: 5 },
-      { label: '🌹 Роза Telegram', type: 'rose', chance: 4 },
-      { label: '⭐ 100 звёзд', type: 'stars', amount: 100, chance: 1 }
+      { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70, image: '/assets/5-stars.png' },
+      { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 20, image: '/assets/10-stars.png' },
+      { label: '🧸 Мишка Telegram', type: 'bear', chance: 5, image: '/assets/bear.png' },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 4, image: '/assets/rose.png' },
+      { label: '⭐ 100 звёзд', type: 'stars', amount: 100, chance: 1, image: '/assets/100-stars.png' }
     ]
   }
 };
