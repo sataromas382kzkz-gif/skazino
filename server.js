@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sql } from '@vercel/postgres';
+import { createPool } from '@vercel/postgres';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +24,9 @@ const postgresUrl = process.env.POSTGRES_URL
   || process.env.POSTGRES_PRISMA_URL;
 if (postgresUrl && !process.env.POSTGRES_URL) process.env.POSTGRES_URL = postgresUrl;
 const databaseConfigured = Boolean(postgresUrl);
+// Явно передаём строку подключения: импортированный `sql` считывает переменные
+// при инициализации модуля, а их нормализация выполняется ниже импорта.
+const db = databaseConfigured ? createPool({ connectionString: postgresUrl }) : null;
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 let databaseReady;
 let databaseMode = databaseConfigured ? 'postgres' : 'local';
@@ -76,7 +79,7 @@ async function initDatabase() {
     return;
   }
   try {
-    await sql`CREATE TABLE IF NOT EXISTS users (
+    await db.sql`CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       profile JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -98,18 +101,19 @@ async function initDatabase() {
 }
 
 databaseReady = initDatabase().catch(error => {
-  // API не должно переставать отвечать, даже если файл хранилища нельзя открыть при старте.
   console.error('Не удалось открыть базу пользователей:', error.message);
-  databaseMode = 'memory';
+  // На Vercel нельзя подменять постоянную БД памятью функции: она очищается
+  // при следующем холодном запуске (обычно это выглядит как потеря через минуты).
+  databaseMode = isVercel ? 'unavailable' : 'memory';
 });
 
 async function saveUser(profile) {
   await databaseReady;
-  if (databaseMode === 'unavailable') throw new Error('PostgreSQL недоступен');
+  if (databaseMode === 'unavailable' || databaseMode === 'memory') throw new Error('Постоянная база данных недоступна');
   profiles[String(profile.id)] = profile;
   if (databaseMode === 'postgres') {
     try {
-      await sql`INSERT INTO users (id, profile) VALUES (${String(profile.id)}, ${JSON.stringify(profile)}::jsonb)
+      await db.sql`INSERT INTO users (id, profile) VALUES (${String(profile.id)}, ${JSON.stringify(profile)}::jsonb)
         ON CONFLICT (id) DO UPDATE SET profile = EXCLUDED.profile, updated_at = NOW()`;
       return;
     } catch (error) {
@@ -124,10 +128,10 @@ async function getProfile(tgUser) {
   const id = String(tgUser.id);
   await databaseReady;
   let profile = profiles[id];
-  if (databaseMode === 'unavailable') throw new Error('PostgreSQL недоступен');
+  if (databaseMode === 'unavailable' || databaseMode === 'memory') throw new Error('Постоянная база данных недоступна');
   if (databaseMode === 'postgres') {
     try {
-      const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
+      const result = await db.sql`SELECT profile FROM users WHERE id = ${id}`;
       profile = result.rows[0]?.profile || profile;
       if (profile) profiles[id] = profile;
     } catch (error) {
