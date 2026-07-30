@@ -20,10 +20,12 @@ function render(user, data) {
   $('daily').disabled=receivedRecently; $('daily').textContent=receivedRecently?'Получено':'Забрать';
 }
 $('daily').onclick=async()=>{ try { const data=await request('/api/daily',{method:'POST'}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
-$('profileButton').onclick=()=>{ $('profileModal').classList.add('visible'); $('promoCode').value=profile?.promoCode || ''; $('topupLink').value=profile?.topupLink || ''; };
-$('closeProfile').onclick=()=> $('profileModal').classList.remove('visible');
+const TOPUP_LINK='https://playerok.com/profile/SaharOK086/products';
+$('profileButton').onclick=()=>{ $('profileModal').classList.add('visible'); $('promoCode').value=''; $('topupLink').value=TOPUP_LINK; $('topupLinkOpen').href=TOPUP_LINK; };
+$('profileModal').addEventListener('click', event=>{ if (event.target === $('profileModal')) $('profileModal').classList.remove('visible'); });
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
-$('topupButton').onclick=async()=>{ try { const data=await request('/api/profile/topup',{method:'POST',body:JSON.stringify({link:$('topupLink').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
+// Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
+$('topupLink').onclick=()=>$('topupLink').select();
 function rewardImage(reward) {
   return reward.image || reward.imageUrl || reward.imagePath || null;
 }

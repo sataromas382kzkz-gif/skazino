@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
+import { promoCodes } from './promo-codes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -79,7 +80,8 @@ function getProfile(tgUser) {
       tasks: 0,
       gifts: { bear: 0, rose: 0 },
       promoCode: '',
-      topupLink: '',
+      usedPromoCodes: [],
+      topupLink: 'https://playerok.com/profile/SaharOK086/products',
       lastDailyAt: null
     });
     saveUsers();
@@ -91,7 +93,8 @@ function getProfile(tgUser) {
   if (!Object.prototype.hasOwnProperty.call(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
   if (!Object.prototype.hasOwnProperty.call(profile, 'prizeStars')) { profile.prizeStars = 0; changed = true; }
   if (!Object.prototype.hasOwnProperty.call(profile, 'promoCode')) { profile.promoCode = ''; changed = true; }
-  if (!Object.prototype.hasOwnProperty.call(profile, 'topupLink')) { profile.topupLink = ''; changed = true; }
+  if (!Object.prototype.hasOwnProperty.call(profile, 'usedPromoCodes')) { profile.usedPromoCodes = []; changed = true; }
+  if (profile.topupLink !== 'https://playerok.com/profile/SaharOK086/products') { profile.topupLink = 'https://playerok.com/profile/SaharOK086/products'; changed = true; }
   if (!Object.prototype.hasOwnProperty.call(profile, 'lastDailyAt')) {
     profile.lastDailyAt = profile.lastDaily ? new Date(`${profile.lastDaily}T00:00:00.000Z`).getTime() : null;
     delete profile.lastDaily;
@@ -156,11 +159,9 @@ app.post('/api/profile/topup', (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   const profile = getProfile(tgUser);
-  const link = String(req.body?.link || '').trim();
-  if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'Ссылка должна начинаться с http:// или https://' });
-  profile.topupLink = link;
+  profile.topupLink = 'https://playerok.com/profile/SaharOK086/products';
   saveUsers();
-  res.json({ profile, message: 'Ссылка сохранена' });
+  res.json({ profile });
 });
 
 app.post('/api/profile/promo', (req, res) => {
@@ -169,9 +170,10 @@ app.post('/api/profile/promo', (req, res) => {
   const profile = getProfile(tgUser);
   const code = String(req.body?.code || '').trim().toUpperCase();
   if (!code) return res.status(400).json({ error: 'Введите промокод' });
-  if (profile.usedPromoCodes?.includes(code)) return res.status(400).json({ error: 'Промокод уже использован' });
-  const promo = { WELCOME: 100 }[code];
-  if (!promo) return res.status(400).json({ error: 'Промокод не найден' });
+  if ([...users.values()].some(user => user.usedPromoCodes?.includes(code))) return res.status(400).json({ error: 'Промокод уже использован' });
+  if (!Object.prototype.hasOwnProperty.call(promoCodes, code)) return res.status(400).json({ error: 'Промокод не найден' });
+  const promo = Number(promoCodes[code]);
+  if (!Number.isInteger(promo) || promo <= 0) return res.status(500).json({ error: 'Промокод настроен неправильно' });
   profile.caseStars += promo;
   profile.stars = profile.caseStars;
   profile.usedPromoCodes = [...(profile.usedPromoCodes || []), code];
