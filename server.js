@@ -16,7 +16,14 @@ const port = Number(process.env.PORT || 3000);
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const isVercel = Boolean(process.env.VERCEL);
-const databaseConfigured = Boolean(process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL);
+// Vercel/Neon могут назвать строку подключения по-разному. Пакет
+// @vercel/postgres читает именно POSTGRES_URL, поэтому нормализуем её до старта SQL-клиента.
+const postgresUrl = process.env.POSTGRES_URL
+  || process.env.POSTGRES_URL_NON_POOLING
+  || process.env.DATABASE_URL
+  || process.env.POSTGRES_PRISMA_URL;
+if (postgresUrl && !process.env.POSTGRES_URL) process.env.POSTGRES_URL = postgresUrl;
+const databaseConfigured = Boolean(postgresUrl);
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 let databaseReady;
 let databaseMode = databaseConfigured ? 'postgres' : 'local';
@@ -58,10 +65,11 @@ function writeLocalProfiles() {
 }
 
 async function initDatabase() {
-  // Всегда поднимаем локальное хранилище: это надёжный резерв, если Postgres не отвечает.
-  await ensureLocalDatabase();
-  profiles = await readLocalProfiles();
+  // На локальной машине файл удобен для разработки. На Vercel он эфемерный,
+  // поэтому при настроенной БД нельзя незаметно переключаться на него.
   if (!databaseConfigured) {
+    await ensureLocalDatabase();
+    profiles = await readLocalProfiles();
     databaseMode = 'local';
     console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
     if (isVercel) console.warn('На Vercel локальный файл временный: добавьте рабочий POSTGRES_URL для постоянных сохранений.');
@@ -76,6 +84,14 @@ async function initDatabase() {
     databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
   } catch (error) {
+    // Не пишем в data/users.json на serverless-хостинге: данные там исчезают,
+    // а ошибка подключения должна быть видна в логах и API.
+    if (isVercel) {
+      databaseMode = 'unavailable';
+      throw new Error(`PostgreSQL недоступен: ${error.message}`);
+    }
+    await ensureLocalDatabase();
+    profiles = await readLocalProfiles();
     databaseMode = 'local';
     console.error(`PostgreSQL недоступен, включена локальная база: ${error.message}`);
   }
@@ -89,6 +105,7 @@ databaseReady = initDatabase().catch(error => {
 
 async function saveUser(profile) {
   await databaseReady;
+  if (databaseMode === 'unavailable') throw new Error('PostgreSQL недоступен');
   profiles[String(profile.id)] = profile;
   if (databaseMode === 'postgres') {
     try {
@@ -96,8 +113,8 @@ async function saveUser(profile) {
         ON CONFLICT (id) DO UPDATE SET profile = EXCLUDED.profile, updated_at = NOW()`;
       return;
     } catch (error) {
-      databaseMode = 'local';
-      console.error(`PostgreSQL недоступен, сохранено локально: ${error.message}`);
+      console.error(`Не удалось сохранить профиль в PostgreSQL: ${error.message}`);
+      throw error;
     }
   }
   if (databaseMode === 'local') await writeLocalProfiles();
@@ -107,14 +124,15 @@ async function getProfile(tgUser) {
   const id = String(tgUser.id);
   await databaseReady;
   let profile = profiles[id];
+  if (databaseMode === 'unavailable') throw new Error('PostgreSQL недоступен');
   if (databaseMode === 'postgres') {
     try {
       const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
       profile = result.rows[0]?.profile || profile;
       if (profile) profiles[id] = profile;
     } catch (error) {
-      databaseMode = 'local';
-      console.error(`PostgreSQL недоступен, использована локальная копия: ${error.message}`);
+      console.error(`Не удалось прочитать профиль из PostgreSQL: ${error.message}`);
+      throw error;
     }
   }
   if (!profile) {
