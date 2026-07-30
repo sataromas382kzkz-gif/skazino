@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +15,20 @@ const isVercel = process.env.VERCEL === '1';
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const users = new Map();
+const usersFile = path.join(__dirname, 'users.json');
+
+try {
+  if (fs.existsSync(usersFile)) {
+    for (const [id, profile] of Object.entries(JSON.parse(fs.readFileSync(usersFile, 'utf8')))) users.set(id, profile);
+  }
+} catch (error) {
+  console.error('Не удалось загрузить пользователей:', error.message);
+}
+
+function saveUsers() {
+  try { fs.writeFileSync(usersFile, JSON.stringify(Object.fromEntries(users), null, 2)); }
+  catch (error) { console.error('Не удалось сохранить пользователей:', error.message); }
+}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -53,19 +68,26 @@ function currentUser(req) {
 
 function getProfile(tgUser) {
   const id = String(tgUser.id);
-  if (!users.has(id)) users.set(id, {
-    id,
-    name: tgUser.first_name || 'Пользователь',
-    stars: 100,
-    tasks: 0,
-    gifts: { bear: 0, rose: 0 }
-  });
-  return users.get(id);
+  if (!users.has(id)) {
+    users.set(id, {
+      id,
+      name: tgUser.first_name || 'Пользователь',
+      stars: 100,
+      tasks: 0,
+      gifts: { bear: 0, rose: 0 },
+      lastDaily: null
+    });
+    saveUsers();
+  }
+  const profile = users.get(id);
+  if (!profile.gifts) profile.gifts = { bear: 0, rose: 0 };
+  if (!Object.prototype.hasOwnProperty.call(profile, 'lastDaily')) profile.lastDaily = null;
+  return profile;
 }
 
 const cases = {
   freebie: {
-    name: 'Халява',
+    name: 'КЕЙС ХАЛЯВА',
     price: 100,
     rewards: [
       { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70 },
@@ -96,10 +118,13 @@ app.post('/api/daily', (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   const profile = getProfile(tgUser);
-  if (profile.tasks > 0) return res.status(400).json({ error: 'Бонус уже получен сегодня' });
-  profile.stars += 25;
+  const today = new Date().toISOString().slice(0, 10);
+  if (profile.lastDaily === today) return res.status(400).json({ error: 'Бонус уже получен сегодня' });
+  profile.stars += 5;
   profile.tasks += 1;
-  res.json({ profile, message: 'Получено ⭐25' });
+  profile.lastDaily = today;
+  saveUsers();
+  res.json({ profile, message: 'Получено ⭐5' });
 });
 
 app.get('/api/cases', (req, res) => {
@@ -118,6 +143,7 @@ app.post('/api/cases/:caseId/open', (req, res) => {
   profile.stars -= selectedCase.price;
   if (reward.type === 'stars') profile.stars += reward.amount;
   else profile.gifts[reward.type] += 1;
+  saveUsers();
   res.json({ profile, reward });
 });
 
