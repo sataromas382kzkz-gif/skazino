@@ -17,11 +17,19 @@ $('daily').onclick=async()=>{ try { const data=await request('/api/daily',{metho
 function rewardImage(reward) {
   return reward.image || reward.imageUrl || reward.imagePath || null;
 }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, character => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;'
+  }[character]));
+}
 function rewardMarkup(reward) {
+  const label=escapeHtml(reward?.label || 'Приз');
   const image=rewardImage(reward);
+  // Подпись теперь всегда видна: даже если картинка не загрузилась,
+  // карточка не будет пустой в Telegram WebView или при отсутствующем asset.
   return image
-    ? `<img src="${image}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span hidden>${reward.label}</span>`
-    : `<span>${reward.label}</span>`;
+    ? `<img src="${escapeHtml(image)}" alt="${label}" onerror="this.hidden=true"><span>${label}</span>`
+    : `<span>${label}</span>`;
 }
 function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
@@ -40,7 +48,7 @@ async function openCase(item, button) {
   $('rewardText').textContent='Кейс открывается...';
   $('closeModal').disabled=true;
   reel.className='reel';
-  reel.innerHTML='<div class="reel-prize"><span>?</span></div>';
+  reel.innerHTML=`<div class="reel-prize"><span>${escapeHtml(item.rewards[0]?.label || 'Приз')}</span></div>`;
   icon.classList.remove('case-opening');
   void icon.offsetWidth;
   icon.classList.add('case-opening');
@@ -54,14 +62,17 @@ async function openCase(item, button) {
     // Она работает даже в старых Telegram WebView и не зависит от размеров экрана.
     const prize=reel.querySelector('.reel-prize');
     let ticks=0;
-    const timer=setInterval(()=>{
+    let timer;
+    const showNextReward=()=>{
       const reward=item.rewards[ticks % item.rewards.length];
       prize.innerHTML=rewardMarkup(reward);
       prize.classList.remove('prize-tick');
       void prize.offsetWidth;
       prize.classList.add('prize-tick');
       ticks+=1;
-    }, 110);
+    };
+    showNextReward();
+    timer=setInterval(showNextReward, 180);
     await new Promise(resolve=>setTimeout(resolve, 3000));
     clearInterval(timer);
 
