@@ -36,18 +36,20 @@ function escapeHtml(value) {
     '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;'
   }[character]));
 }
+function rewardName(reward) {
+  // В названиях призов уже есть emoji. Убираем его, чтобы не показывать дважды.
+  return String(reward?.label || 'Приз').replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, '').trim();
+}
 function rewardMarkup(reward) {
-  const label=escapeHtml(reward?.label || 'Приз');
-  // Emoji показывается одинаково в превью и в окне выигранного приза.
-  // Не обращаемся к отсутствующим файлам изображений: это останавливало рендер кейса.
-  return `<span class="reel-placeholder" aria-hidden="true">${rewardEmoji(reward)}</span><span>${label}</span>`;
+  const label=escapeHtml(rewardName(reward));
+  // Один значок и название отображаются в общей ровной сетке.
+  return `<span class="reel-placeholder" aria-hidden="true">${rewardEmoji(reward)}</span><span class="reward-name">${label}</span>`;
 }
 function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
-  const chances=item.rewards.map(reward => `<div class="reward-row"><span>${rewardEmoji(reward)} ${escapeHtml(reward.label)}</span><b>${reward.chance}%</b></div>`).join('');
   const card=document.createElement('article');
   card.className='case-card';
-  card.innerHTML=`<div class="case-art">🎁</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><div class="reward-list">${chances}</div><button>Открыть кейс</button>`;
+  card.innerHTML=`<div class="case-art">🎁</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>Открыть кейс</button>`;
   const button=card.querySelector('button');
   button.onclick=()=>openCase(item, button);
   $('cases').append(card);
