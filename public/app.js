@@ -32,42 +32,50 @@ function showCase(item) {
 async function openCase(item, button) {
   if (!profile || profile.stars < item.price) return toast('Недостаточно звёзд для открытия кейса');
   button.disabled=true;
-  const modal=$('caseModal'); modal.classList.add('visible'); $('caseTitle').textContent=item.name; $('rewardText').textContent=''; $('closeModal').disabled=true;
-  const reel=$('reel'); reel.classList.remove('win');
-  reel.innerHTML='<div class="reel-track"></div>';
-  const reelTrack=reel.querySelector('.reel-track');
-  $('rewardText').textContent='Разыгрываем приз...';
+  const modal=$('caseModal');
+  const reel=$('reel');
+  const icon=$('caseIcon');
+  modal.classList.add('visible');
+  $('caseTitle').textContent=item.name;
+  $('rewardText').textContent='Кейс открывается...';
+  $('closeModal').disabled=true;
+  reel.className='reel';
+  reel.innerHTML='<div class="reel-prize"><span>?</span></div>';
+  icon.classList.remove('case-opening');
+  void icon.offsetWidth;
+  icon.classList.add('case-opening');
 
   try {
+    // Получаем реальный приз до визуальной части, но показываем его только в финале.
     const data=await request(`/api/cases/${item.id}/open`,{method:'POST'});
-    const winningIndex=24;
-    const track=[];
-    for(let i=0;i<winningIndex;i++) track.push(item.rewards[Math.floor(Math.random()*item.rewards.length)]);
-    track.push(data.reward);
-    track.forEach(reward=>{
-      const lot=document.createElement('span');
-      lot.className='reel-lot';
-      lot.innerHTML=rewardMarkup(reward);
-      reelTrack.append(lot);
-    });
+    if (!data.reward || !data.profile) throw Error('Сервер не вернул приз');
 
-    // Простая и надёжная анимация: transform задаётся прямо на элементе.
-    const lotWidth=reelTrack.firstElementChild.offsetWidth;
-    const gap=20;
-    const step=lotWidth+gap;
-    const targetOffset=(reel.offsetWidth-lotWidth)/2-winningIndex*step;
-    reelTrack.style.transform='translate3d(0,0,0)';
-    reelTrack.offsetWidth;
-    reelTrack.style.transition='transform 3.8s cubic-bezier(.12,.75,.18,1)';
-    requestAnimationFrame(()=>{ reelTrack.style.transform=`translate3d(${targetOffset}px,0,0)`; });
-    await new Promise(resolve=>setTimeout(resolve,4000));
+    // Надёжная анимация без transform и Web Animations API: быстро меняем карточки.
+    // Она работает даже в старых Telegram WebView и не зависит от размеров экрана.
+    const prize=reel.querySelector('.reel-prize');
+    let ticks=0;
+    const timer=setInterval(()=>{
+      const reward=item.rewards[ticks % item.rewards.length];
+      prize.innerHTML=rewardMarkup(reward);
+      prize.classList.remove('prize-tick');
+      void prize.offsetWidth;
+      prize.classList.add('prize-tick');
+      ticks+=1;
+    }, 110);
+    await new Promise(resolve=>setTimeout(resolve, 3000));
+    clearInterval(timer);
+
+    prize.innerHTML=rewardMarkup(data.reward);
+    prize.classList.add('prize-final');
     reel.classList.add('win');
     $('rewardText').textContent=`Вы получили: ${data.reward.label}`;
     render({first_name:profile.name},data.profile);
   } catch(e) {
     $('rewardText').textContent=e.message;
+  } finally {
+    $('closeModal').disabled=false;
+    button.disabled=false;
   }
-  $('closeModal').disabled=false; button.disabled=false;
 }
 $('closeModal').onclick=()=> $('caseModal').classList.remove('visible');
 request('/api/me').then(x=>render(x.user,x.profile)).catch(e=>toast(e.message));
