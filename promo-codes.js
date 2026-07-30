@@ -5,5 +5,6 @@
 export const promoCodes = {
   WELCOME: 100,
   STAR10: 10,
-  STAR100: 100
+  STAR100: 100,
+  PORN100: 100
 };
