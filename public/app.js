@@ -24,18 +24,39 @@ async function openCase(item, button) {
   button.disabled=true;
   const modal=$('caseModal'); modal.classList.add('visible'); $('caseTitle').textContent=item.name; $('rewardText').textContent=''; $('closeModal').disabled=true;
   const reel=$('reel'); reel.classList.remove('win');
-  const track=[];
-  for(let i=0;i<30;i++) track.push(item.rewards[Math.floor(Math.random()*item.rewards.length)]);
-  reel.innerHTML='<div class="reel-track"></div>';
+  reel.innerHTML='<div class="reel-pointer"></div><div class="reel-track"></div>';
   const reelTrack=reel.querySelector('.reel-track');
-  track.forEach(reward=>{ const lot=document.createElement('span'); lot.textContent=reward.label; reelTrack.append(lot); });
-  // Сдвигаем ленту на ширину карточек, а не на проценты трека:
-  // поэтому анимация корректно работает на мобильных и не зависает.
-  const cardWidth=reelTrack.firstElementChild.getBoundingClientRect().width + 20;
-  const distance=(track.length-1)*cardWidth;
-  const animation=reelTrack.animate([{transform:'translateX(0)'},{transform:`translateX(-${distance}px)`}],{duration:2600,easing:'cubic-bezier(.12,.72,.18,1)',fill:'forwards'});
-  await animation.finished;
-  try { const data=await request(`/api/cases/${item.id}/open`,{method:'POST'}); reelTrack.lastElementChild.textContent=data.reward.label; reel.classList.add('win'); $('rewardText').textContent=`Вы получили: ${data.reward.label}`; render({first_name:profile.name},data.profile); } catch(e){ $('rewardText').textContent=e.message; }
+  $('rewardText').textContent='Разыгрываем приз...';
+
+  // Сначала фиксируем результат на сервере, затем прокручиваем ленту к нему.
+  // Поэтому последний лот всегда совпадает с реально выданной наградой.
+  try {
+    const data=await request(`/api/cases/${item.id}/open`,{method:'POST'});
+    const winningIndex=29;
+    const track=[];
+    for(let i=0;i<winningIndex;i++) track.push(item.rewards[Math.floor(Math.random()*item.rewards.length)]);
+    track.push(data.reward);
+    track.forEach(reward=>{
+      const lot=document.createElement('span');
+      lot.textContent=reward.label;
+      reelTrack.append(lot);
+    });
+
+    const lotWidth=reelTrack.firstElementChild.getBoundingClientRect().width;
+    const gap=20;
+    const step=lotWidth+gap;
+    const targetOffset=reel.clientWidth/2-lotWidth/2-winningIndex*step;
+    const animation=reelTrack.animate(
+      [{transform:'translateX(0)'},{transform:`translateX(${targetOffset}px)`}],
+      {duration:3600,easing:'cubic-bezier(.08,.72,.12,1)',fill:'forwards'}
+    );
+    await animation.finished;
+    reel.classList.add('win');
+    $('rewardText').textContent=`Вы получили: ${data.reward.label}`;
+    render({first_name:profile.name},data.profile);
+  } catch(e) {
+    $('rewardText').textContent=e.message;
+  }
   $('closeModal').disabled=false; button.disabled=false;
 }
 $('closeModal').onclick=()=> $('caseModal').classList.remove('visible');
