@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from '@vercel/postgres';
@@ -16,11 +17,34 @@ const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const databaseConfigured = Boolean(process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL);
 const isVercel = Boolean(process.env.VERCEL);
+const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 let databaseReady;
+
+async function ensureLocalDatabase() {
+  await fs.mkdir(path.dirname(localDatabasePath), { recursive: true });
+  try { await fs.access(localDatabasePath); }
+  catch { await fs.writeFile(localDatabasePath, '{}', 'utf8'); }
+}
+
+async function readLocalProfiles() {
+  await ensureLocalDatabase();
+  return JSON.parse(await fs.readFile(localDatabasePath, 'utf8'));
+}
+
+async function writeLocalProfiles(profiles) {
+  await ensureLocalDatabase();
+  const temporaryPath = `${localDatabasePath}.tmp`;
+  await fs.writeFile(temporaryPath, JSON.stringify(profiles, null, 2), 'utf8');
+  await fs.rename(temporaryPath, localDatabasePath);
+}
 
 async function initDatabase() {
   if (!databaseConfigured) {
-    console.warn('POSTGRES_URL не задан: API профилей будет недоступен');
+    if (isVercel) {
+      throw new Error('Не задан POSTGRES_URL или POSTGRES_PRISMA_URL в настройках Vercel');
+    }
+    await ensureLocalDatabase();
+    console.warn('Postgres не задан: используется локальная база data/users.json');
     return;
   }
   await sql`CREATE TABLE IF NOT EXISTS users (
@@ -35,18 +59,28 @@ databaseReady = initDatabase().catch(error => {
 });
 
 async function saveUser(profile) {
-  if (!databaseConfigured) throw new Error('Postgres не настроен');
   await databaseReady;
+  if (!databaseConfigured) {
+    const profiles = await readLocalProfiles();
+    profiles[String(profile.id)] = profile;
+    await writeLocalProfiles(profiles);
+    return;
+  }
   await sql`INSERT INTO users (id, profile) VALUES (${String(profile.id)}, ${JSON.stringify(profile)}::jsonb)
     ON CONFLICT (id) DO UPDATE SET profile = EXCLUDED.profile`;
 }
 
 async function getProfile(tgUser) {
-  if (!databaseConfigured) throw new Error('Postgres не настроен');
   const id = String(tgUser.id);
   await databaseReady;
-  const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
-  let profile = result.rows[0]?.profile;
+  let profile;
+  if (!databaseConfigured) {
+    const profiles = await readLocalProfiles();
+    profile = profiles[id];
+  } else {
+    const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
+    profile = result.rows[0]?.profile;
+  }
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
       caseStars: 100, prizeStars: 0, tasks: 0, gifts: { bear: 0, rose: 0 }, promoCode: '',
@@ -220,9 +254,14 @@ if (botToken && !isVercel) {
     return ctx.reply(`Привет, ${ctx.from.first_name}!\\n\\nЭто стартовый Telegram Mini App.`, Markup.inlineKeyboard([[button]]));
   });
   bot.command('app', ctx => ctx.reply('Открыть Mini App:', Markup.inlineKeyboard([[Markup.button.webApp('🚀 Открыть', appUrl || 'https://example.com')]])));
-  bot.command('profile', ctx => {
-    const profile = getProfile(ctx.from);
-    return ctx.reply(`👤 ${profile.name}\\n⭐ Баланс: ${profile.stars}\\n✅ Заданий: ${profile.tasks}`);
+  bot.command('profile', async ctx => {
+    try {
+      const profile = await getProfile(ctx.from);
+      return ctx.reply(`👤 ${profile.name}\\n⭐ Баланс: ${profile.stars}\\n✅ Заданий: ${profile.tasks}`);
+    } catch (error) {
+      console.error(error);
+      return ctx.reply('База данных временно недоступна');
+    }
   });
   bot.launch();
   console.log('Telegram bot started');
