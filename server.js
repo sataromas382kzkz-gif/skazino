@@ -19,7 +19,9 @@ const isVercel = Boolean(process.env.VERCEL);
 const databaseConfigured = Boolean(process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL);
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 let databaseReady;
+let databaseMode = databaseConfigured ? 'postgres' : 'local';
 let profiles = {};
+let localWriteQueue = Promise.resolve();
 
 async function ensureLocalDatabase() {
   await fs.mkdir(path.dirname(localDatabasePath), { recursive: true });
@@ -29,57 +31,91 @@ async function ensureLocalDatabase() {
 
 async function readLocalProfiles() {
   await ensureLocalDatabase();
-  return JSON.parse(await fs.readFile(localDatabasePath, 'utf8'));
+  try {
+    const contents = await fs.readFile(localDatabasePath, 'utf8');
+    return contents.trim() ? JSON.parse(contents) : {};
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      const backupPath = `${localDatabasePath}.broken-${Date.now()}`;
+      await fs.rename(localDatabasePath, backupPath);
+      await fs.writeFile(localDatabasePath, '{}', 'utf8');
+      console.error(`Повреждённая база перенесена в ${backupPath}`);
+      return {};
+    }
+    throw error;
+  }
 }
 
-async function writeLocalProfiles(profiles) {
-  await ensureLocalDatabase();
-  const temporaryPath = `${localDatabasePath}.tmp`;
-  await fs.writeFile(temporaryPath, JSON.stringify(profiles, null, 2), 'utf8');
-  await fs.rename(temporaryPath, localDatabasePath);
+function writeLocalProfiles() {
+  // Последовательная запись исключает конфликт временных файлов при параллельных запросах.
+  localWriteQueue = localWriteQueue.catch(() => {}).then(async () => {
+    await ensureLocalDatabase();
+    const temporaryPath = `${localDatabasePath}.${process.pid}.tmp`;
+    await fs.writeFile(temporaryPath, JSON.stringify(profiles, null, 2), 'utf8');
+    await fs.rename(temporaryPath, localDatabasePath);
+  });
+  return localWriteQueue;
 }
 
 async function initDatabase() {
-  if (databaseConfigured) {
+  // Всегда поднимаем локальное хранилище: это надёжный резерв, если Postgres не отвечает.
+  await ensureLocalDatabase();
+  profiles = await readLocalProfiles();
+  if (!databaseConfigured) {
+    databaseMode = 'local';
+    console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
+    if (isVercel) console.warn('На Vercel локальный файл временный: добавьте рабочий POSTGRES_URL для постоянных сохранений.');
+    return;
+  }
+  try {
     await sql`CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       profile JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`;
+    databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
-    return;
+  } catch (error) {
+    databaseMode = 'local';
+    console.error(`PostgreSQL недоступен, включена локальная база: ${error.message}`);
   }
-  await ensureLocalDatabase();
-  profiles = await readLocalProfiles();
-  console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
-  if (isVercel) console.warn('На Vercel локальный файл временный: добавьте POSTGRES_URL для постоянных сохранений.');
 }
 
 databaseReady = initDatabase().catch(error => {
+  // API не должно переставать отвечать, даже если файл хранилища нельзя открыть при старте.
   console.error('Не удалось открыть базу пользователей:', error.message);
-  throw error;
+  databaseMode = 'memory';
 });
 
 async function saveUser(profile) {
   await databaseReady;
-  if (databaseConfigured) {
-    await sql`INSERT INTO users (id, profile) VALUES (${String(profile.id)}, ${JSON.stringify(profile)}::jsonb)
-      ON CONFLICT (id) DO UPDATE SET profile = EXCLUDED.profile, updated_at = NOW()`;
-    return;
-  }
   profiles[String(profile.id)] = profile;
-  await writeLocalProfiles(profiles);
+  if (databaseMode === 'postgres') {
+    try {
+      await sql`INSERT INTO users (id, profile) VALUES (${String(profile.id)}, ${JSON.stringify(profile)}::jsonb)
+        ON CONFLICT (id) DO UPDATE SET profile = EXCLUDED.profile, updated_at = NOW()`;
+      return;
+    } catch (error) {
+      databaseMode = 'local';
+      console.error(`PostgreSQL недоступен, сохранено локально: ${error.message}`);
+    }
+  }
+  if (databaseMode === 'local') await writeLocalProfiles();
 }
 
 async function getProfile(tgUser) {
   const id = String(tgUser.id);
   await databaseReady;
-  let profile;
-  if (databaseConfigured) {
-    const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
-    profile = result.rows[0]?.profile;
-  } else {
-    profile = profiles[id];
+  let profile = profiles[id];
+  if (databaseMode === 'postgres') {
+    try {
+      const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
+      profile = result.rows[0]?.profile || profile;
+      if (profile) profiles[id] = profile;
+    } catch (error) {
+      databaseMode = 'local';
+      console.error(`PostgreSQL недоступен, использована локальная копия: ${error.message}`);
+    }
   }
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
