@@ -75,13 +75,17 @@ function getProfile(tgUser) {
       stars: 100,
       tasks: 0,
       gifts: { bear: 0, rose: 0 },
-      lastDaily: null
+      lastDailyAt: null
     });
     saveUsers();
   }
   const profile = users.get(id);
   if (!profile.gifts) profile.gifts = { bear: 0, rose: 0 };
-  if (!Object.prototype.hasOwnProperty.call(profile, 'lastDaily')) profile.lastDaily = null;
+  if (!Object.prototype.hasOwnProperty.call(profile, 'lastDailyAt')) {
+    profile.lastDailyAt = profile.lastDaily ? new Date(`${profile.lastDaily}T00:00:00.000Z`).getTime() : null;
+    delete profile.lastDaily;
+    saveUsers();
+  }
   return profile;
 }
 
@@ -118,13 +122,17 @@ app.post('/api/daily', (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   const profile = getProfile(tgUser);
-  const today = new Date().toISOString().slice(0, 10);
-  if (profile.lastDaily === today) return res.status(400).json({ error: 'Бонус уже получен сегодня' });
-  profile.stars += 5;
+  const now = Date.now();
+  const cooldown = 24 * 60 * 60 * 1000;
+  if (profile.lastDailyAt && now - profile.lastDailyAt < cooldown) {
+    const remainingHours = Math.ceil((cooldown - (now - profile.lastDailyAt)) / 3600000);
+    return res.status(400).json({ error: `Бонус будет доступен через ${remainingHours} ч.` });
+  }
+  profile.stars += 100;
   profile.tasks += 1;
-  profile.lastDaily = today;
+  profile.lastDailyAt = now;
   saveUsers();
-  res.json({ profile, message: 'Получено ⭐5' });
+  res.json({ profile, message: 'Получено ⭐100' });
 });
 
 app.get('/api/cases', (req, res) => {

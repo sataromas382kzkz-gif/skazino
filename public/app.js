@@ -8,10 +8,10 @@ async function request(url, options={}) { const response=await fetch(url,{...opt
 function render(user, data) {
   profile=data;
   const name=user.first_name||'друг';
-  const receivedToday=data.lastDaily===new Date().toISOString().slice(0, 10);
+  const receivedRecently=data.lastDailyAt && Date.now()-data.lastDailyAt < 24*60*60*1000;
   $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
   $('stars').textContent=data.stars; $('statStars').textContent=data.stars; $('tasks').textContent=data.tasks;
-  $('daily').disabled=receivedToday; $('daily').textContent=receivedToday?'Получено':'Забрать';
+  $('daily').disabled=receivedRecently; $('daily').textContent=receivedRecently?'Получено':'Забрать';
 }
 $('daily').onclick=async()=>{ try { const data=await request('/api/daily',{method:'POST'}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 function showCase(item) {
@@ -25,12 +25,16 @@ async function openCase(item, button) {
   const modal=$('caseModal'); modal.classList.add('visible'); $('caseTitle').textContent=item.name; $('rewardText').textContent=''; $('closeModal').disabled=true;
   const reel=$('reel'); reel.classList.remove('win');
   const track=[];
-  for(let i=0;i<24;i++) track.push(item.rewards[Math.floor(Math.random()*item.rewards.length)]);
+  for(let i=0;i<30;i++) track.push(item.rewards[Math.floor(Math.random()*item.rewards.length)]);
   reel.innerHTML='<div class="reel-track"></div>';
   const reelTrack=reel.querySelector('.reel-track');
   track.forEach(reward=>{ const lot=document.createElement('span'); lot.textContent=reward.label; reelTrack.append(lot); });
-  reelTrack.animate([{transform:'translateX(0)'},{transform:`translateX(-${(track.length-1)*100}%)`}],{duration:2600,easing:'cubic-bezier(.12,.72,.18,1)',fill:'forwards'});
-  await new Promise(resolve=>setTimeout(resolve,2650));
+  // Сдвигаем ленту на ширину карточек, а не на проценты трека:
+  // поэтому анимация корректно работает на мобильных и не зависает.
+  const cardWidth=reelTrack.firstElementChild.getBoundingClientRect().width + 20;
+  const distance=(track.length-1)*cardWidth;
+  const animation=reelTrack.animate([{transform:'translateX(0)'},{transform:`translateX(-${distance}px)`}],{duration:2600,easing:'cubic-bezier(.12,.72,.18,1)',fill:'forwards'});
+  await animation.finished;
   try { const data=await request(`/api/cases/${item.id}/open`,{method:'POST'}); reelTrack.lastElementChild.textContent=data.reward.label; reel.classList.add('win'); $('rewardText').textContent=`Вы получили: ${data.reward.label}`; render({first_name:profile.name},data.profile); } catch(e){ $('rewardText').textContent=e.message; }
   $('closeModal').disabled=false; button.disabled=false;
 }
