@@ -26,8 +26,10 @@ $('profileModal').addEventListener('click', event=>{ if (event.target === $('pro
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 // Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
 $('topupLink').onclick=()=>$('topupLink').select();
-function rewardImage(reward) {
-  return reward.image || reward.imageUrl || reward.imagePath || null;
+function rewardEmoji(reward) {
+  if (reward?.type === 'bear') return '🧸';
+  if (reward?.type === 'rose') return '🌹';
+  return '⭐';
 }
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -39,9 +41,9 @@ function rewardMarkup(reward) {
   const image=rewardImage(reward);
   // Всегда оставляем два одинаковых ряда: поэтому призы с картинкой и без неё
   // имеют одинаковую высоту и подпись находится в одном месте.
-  return image
-    ? `<img src="${escapeHtml(image)}" alt="${label}" onerror="this.hidden=true"><span>${label}</span>`
-    : `<span class="reel-placeholder" aria-hidden="true"></span><span>${label}</span>`;
+  // Файлов изображений для наград в проекте нет: не делаем запросов к отсутствующим URL.
+  // Emoji показывается одинаково в превью и в окне выигранного приза.
+  return `<span class="reel-placeholder" aria-hidden="true">${rewardEmoji(reward)}</span><span>${label}</span>`;
 }
 function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');

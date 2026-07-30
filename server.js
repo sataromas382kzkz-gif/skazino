@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sql } from '@vercel/postgres';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
@@ -14,7 +16,7 @@ const port = Number(process.env.PORT || 3000);
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const isVercel = Boolean(process.env.VERCEL);
-if (isVercel) console.warn('Vercel использует эфемерную локальную базу; для постоянных сохранений запускайте сервер на ПК.');
+const databaseConfigured = Boolean(process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL);
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 let databaseReady;
 let profiles = {};
@@ -38,18 +40,33 @@ async function writeLocalProfiles(profiles) {
 }
 
 async function initDatabase() {
+  if (databaseConfigured) {
+    await sql`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      profile JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+    console.log('Подключена постоянная база PostgreSQL');
+    return;
+  }
   await ensureLocalDatabase();
   profiles = await readLocalProfiles();
   console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
+  if (isVercel) console.warn('На Vercel локальный файл временный: добавьте POSTGRES_URL для постоянных сохранений.');
 }
 
 databaseReady = initDatabase().catch(error => {
-  console.error('Не удалось открыть локальную базу пользователей:', error.message);
+  console.error('Не удалось открыть базу пользователей:', error.message);
   throw error;
 });
 
 async function saveUser(profile) {
   await databaseReady;
+  if (databaseConfigured) {
+    await sql`INSERT INTO users (id, profile) VALUES (${String(profile.id)}, ${JSON.stringify(profile)}::jsonb)
+      ON CONFLICT (id) DO UPDATE SET profile = EXCLUDED.profile, updated_at = NOW()`;
+    return;
+  }
   profiles[String(profile.id)] = profile;
   await writeLocalProfiles(profiles);
 }
@@ -57,7 +74,13 @@ async function saveUser(profile) {
 async function getProfile(tgUser) {
   const id = String(tgUser.id);
   await databaseReady;
-  let profile = profiles[id];
+  let profile;
+  if (databaseConfigured) {
+    const result = await sql`SELECT profile FROM users WHERE id = ${id}`;
+    profile = result.rows[0]?.profile;
+  } else {
+    profile = profiles[id];
+  }
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
       caseStars: 100, prizeStars: 0, tasks: 0, gifts: { bear: 0, rose: 0 }, promoCode: '',
@@ -94,13 +117,15 @@ function verifyTelegramInitData(raw) {
     .filter(([key]) => key !== 'hash')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
-    .join('\\n');
+    .join('\n');
   const secret = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calculated = crypto.createHmac('sha256', secret).update(dataCheckString).digest('hex');
   if (hash.length !== calculated.length || !crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(calculated))) return null;
   try {
     const authDate = Number(params.get('auth_date'));
-    if (!authDate || Date.now() / 1000 - authDate > 86400) return null;
+    // Telegram initData остаётся актуальной в течение сессии Mini App.
+    // Суточное ограничение приводило к ложному «Нет авторизации» при повторном входе.
+    if (!authDate || Date.now() / 1000 - authDate > 7 * 24 * 60 * 60) return null;
     return JSON.parse(params.get('user'));
   } catch { return null; }
 }
@@ -108,9 +133,9 @@ function verifyTelegramInitData(raw) {
 function currentUser(req) {
   const telegramUser = verifyTelegramInitData(req.headers['x-telegram-init-data']);
   if (telegramUser) return telegramUser;
+
+  // Не включать в production: параметр предназначен только для локальной проверки API.
   if (process.env.NODE_ENV !== 'production') return { id: 'demo', first_name: 'Демо', username: 'demo' };
-  // В Vercel без Telegram initData API всё равно отвечает корректно, но без профиля.
-  // Это предотвращает падение страницы при первичной проверке деплоя.
   return null;
 }
 
@@ -119,11 +144,11 @@ const cases = {
     name: 'КЕЙС ХАЛЯВА',
     price: 100,
     rewards: [
-      { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70, image: '/assets/5-stars.png' },
-      { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 20, image: '/assets/10-stars.png' },
-      { label: '🧸 Мишка Telegram', type: 'bear', chance: 5, image: '/assets/bear.png' },
-      { label: '🌹 Роза Telegram', type: 'rose', chance: 4, image: '/assets/rose.png' },
-      { label: '⭐ 100 звёзд', type: 'stars', amount: 100, chance: 1, image: '/assets/100-stars.png' }
+      { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70 },
+      { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 20 },
+      { label: '🧸 Мишка Telegram', type: 'bear', chance: 5 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 4 },
+      { label: '⭐ 100 звёзд', type: 'stars', amount: 100, chance: 1 }
     ]
   }
 };
