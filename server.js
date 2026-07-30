@@ -1,9 +1,9 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
@@ -14,18 +14,55 @@ const port = Number(process.env.PORT || 3000);
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const isVercel = Boolean(process.env.VERCEL);
+if (isVercel) console.warn('Vercel использует эфемерную локальную базу; для постоянных сохранений запускайте сервер на ПК.');
+const localDatabasePath = path.join(__dirname, 'data', 'users.json');
+let databaseReady;
+let profiles = {};
 
-// Профили живут только в памяти текущего serverless-инстанса.
-const profiles = new Map();
+async function ensureLocalDatabase() {
+  await fs.mkdir(path.dirname(localDatabasePath), { recursive: true });
+  try { await fs.access(localDatabasePath); }
+  catch { await fs.writeFile(localDatabasePath, '{}', 'utf8'); }
+}
 
-function getProfile(tgUser) {
+async function readLocalProfiles() {
+  await ensureLocalDatabase();
+  return JSON.parse(await fs.readFile(localDatabasePath, 'utf8'));
+}
+
+async function writeLocalProfiles(profiles) {
+  await ensureLocalDatabase();
+  const temporaryPath = `${localDatabasePath}.tmp`;
+  await fs.writeFile(temporaryPath, JSON.stringify(profiles, null, 2), 'utf8');
+  await fs.rename(temporaryPath, localDatabasePath);
+}
+
+async function initDatabase() {
+  await ensureLocalDatabase();
+  profiles = await readLocalProfiles();
+  console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
+}
+
+databaseReady = initDatabase().catch(error => {
+  console.error('Не удалось открыть локальную базу пользователей:', error.message);
+  throw error;
+});
+
+async function saveUser(profile) {
+  await databaseReady;
+  profiles[String(profile.id)] = profile;
+  await writeLocalProfiles(profiles);
+}
+
+async function getProfile(tgUser) {
   const id = String(tgUser.id);
-  let profile = profiles.get(id);
+  await databaseReady;
+  let profile = profiles[id];
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
       caseStars: 100, prizeStars: 0, tasks: 0, gifts: { bear: 0, rose: 0 }, promoCode: '',
       usedPromoCodes: [], topupLink: 'https://playerok.com/profile/SaharOK086/products', lastDailyAt: null };
-    profiles.set(id, profile);
+    await saveUser(profile);
   }
   let changed = false;
   if (!profile.gifts) { profile.gifts = { bear: 0, rose: 0 }; changed = true; }
@@ -35,7 +72,7 @@ function getProfile(tgUser) {
   if (!Object.hasOwn(profile, 'promoCode')) { profile.promoCode = ''; changed = true; }
   if (!Object.hasOwn(profile, 'usedPromoCodes')) { profile.usedPromoCodes = []; changed = true; }
   if (!Object.hasOwn(profile, 'lastDailyAt')) { profile.lastDailyAt = null; changed = true; }
-  if (changed) profiles.set(id, profile);
+  if (changed) await saveUser(profile);
   return profile;
 }
 
@@ -57,7 +94,7 @@ function verifyTelegramInitData(raw) {
     .filter(([key]) => key !== 'hash')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
+    .join('\\n');
   const secret = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
   const calculated = crypto.createHmac('sha256', secret).update(dataCheckString).digest('hex');
   if (hash.length !== calculated.length || !crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(calculated))) return null;
@@ -103,16 +140,16 @@ function drawReward(rewards) {
 app.get('/api/me', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Откройте приложение через Telegram' });
-  try { res.json({ user: tgUser, profile: getProfile(tgUser) }); }
-  catch (error) { console.error(error); res.status(500).json({ error: 'Не удалось загрузить профиль' }); }
+  try { res.json({ user: tgUser, profile: await getProfile(tgUser) }); }
+  catch (error) { console.error(error); res.status(503).json({ error: 'База данных временно недоступна' }); }
 });
 
 app.post('/api/daily', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   let profile;
-  try { profile = getProfile(tgUser); }
-  catch (error) { console.error(error); return res.status(500).json({ error: 'Не удалось загрузить профиль' }); }
+  try { profile = await getProfile(tgUser); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   const now = Date.now();
   const cooldown = 24 * 60 * 60 * 1000;
   if (profile.lastDailyAt && now - profile.lastDailyAt < cooldown) {
@@ -123,7 +160,8 @@ app.post('/api/daily', async (req, res) => {
   profile.stars = profile.caseStars;
   profile.tasks += 1;
   profile.lastDailyAt = now;
-  profiles.set(String(profile.id), profile);
+  try { await saveUser(profile); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
   res.json({ profile, message: 'Получено ⭐100' });
 });
 
@@ -135,10 +173,11 @@ app.post('/api/profile/topup', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   let profile;
-  try { profile = getProfile(tgUser); }
-  catch (error) { console.error(error); return res.status(500).json({ error: 'Не удалось загрузить профиль' }); }
+  try { profile = await getProfile(tgUser); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   profile.topupLink = 'https://playerok.com/profile/SaharOK086/products';
-  profiles.set(String(profile.id), profile);
+  try { await saveUser(profile); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
   res.json({ profile });
 });
 
@@ -146,8 +185,8 @@ app.post('/api/profile/promo', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   let profile;
-  try { profile = getProfile(tgUser); }
-  catch (error) { console.error(error); return res.status(500).json({ error: 'Не удалось загрузить профиль' }); }
+  try { profile = await getProfile(tgUser); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   const code = String(req.body?.code || '').trim().toUpperCase();
   if (!code) return res.status(400).json({ error: 'Введите промокод' });
   if (profile.usedPromoCodes?.includes(code)) return res.status(400).json({ error: 'Промокод уже использован' });
@@ -158,7 +197,8 @@ app.post('/api/profile/promo', async (req, res) => {
   profile.stars = profile.caseStars;
   profile.usedPromoCodes = [...(profile.usedPromoCodes || []), code];
   profile.promoCode = code;
-  profiles.set(String(profile.id), profile);
+  try { await saveUser(profile); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
   res.json({ profile, message: `Начислено ⭐${promo}` });
 });
 
@@ -168,8 +208,8 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
   const selectedCase = cases[req.params.caseId];
   if (!selectedCase) return res.status(404).json({ error: 'Кейс не найден' });
   let profile;
-  try { profile = getProfile(tgUser); }
-  catch (error) { console.error(error); return res.status(500).json({ error: 'Не удалось загрузить профиль' }); }
+  try { profile = await getProfile(tgUser); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   if (profile.caseStars < selectedCase.price) return res.status(400).json({ error: 'Недостаточно звёзд для кейса' });
 
   const reward = drawReward(selectedCase.rewards);
@@ -177,7 +217,8 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
   profile.stars = profile.caseStars;
   if (reward.type === 'stars') profile.prizeStars += reward.amount;
   else profile.gifts[reward.type] += 1;
-  profiles.set(String(profile.id), profile);
+  try { await saveUser(profile); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
   res.json({ profile, reward });
 });
 
@@ -192,11 +233,11 @@ if (botToken && !isVercel) {
   bot.command('app', ctx => ctx.reply('Открыть Mini App:', Markup.inlineKeyboard([[Markup.button.webApp('🚀 Открыть', appUrl || 'https://example.com')]])));
   bot.command('profile', async ctx => {
     try {
-      const profile = getProfile(ctx.from);
+      const profile = await getProfile(ctx.from);
       return ctx.reply(`👤 ${profile.name}\\n⭐ Баланс: ${profile.stars}\\n✅ Заданий: ${profile.tasks}`);
     } catch (error) {
       console.error(error);
-      return ctx.reply('Не удалось загрузить профиль');
+      return ctx.reply('База данных временно недоступна');
     }
   });
   bot.launch();
