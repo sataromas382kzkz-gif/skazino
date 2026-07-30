@@ -45,12 +45,17 @@ async function openCase(item, button) {
     const lotWidth=reelTrack.firstElementChild.getBoundingClientRect().width;
     const gap=20;
     const step=lotWidth+gap;
-    const targetOffset=reel.clientWidth/2-lotWidth/2-winningIndex*step;
-    const animation=reelTrack.animate(
-      [{transform:'translateX(0)'},{transform:`translateX(${targetOffset}px)`}],
-      {duration:3600,easing:'cubic-bezier(.08,.72,.12,1)',fill:'forwards'}
-    );
-    await animation.finished;
+    // Учитываем внутренний отступ ленты, чтобы приз остановился под маркером.
+    const targetOffset=reel.clientWidth/2-lotWidth/2-20-winningIndex*step;
+    reelTrack.classList.add('spinning');
+    // CSS transition надёжнее Web Animations API в Telegram WebView.
+    // Два кадра нужны, чтобы браузер сначала применил начальную позицию.
+    reelTrack.style.transform='translateX(0)';
+    void reelTrack.offsetWidth;
+    await new Promise(resolve=>requestAnimationFrame(()=>{
+      reelTrack.style.transform=`translateX(${targetOffset}px)`;
+      setTimeout(resolve,3700);
+    }));
     reel.classList.add('win');
     $('rewardText').textContent=`Вы получили: ${data.reward.label}`;
     render({first_name:profile.name},data.profile);
