@@ -16,20 +16,51 @@ const isVercel = process.env.VERCEL === '1';
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
 const users = new Map();
-const usersFile = path.join(__dirname, 'users.json');
+// Храним пользователей в data.json: это файл данных проекта, а не users.json,
+// который раньше создавался заново и не загружался после перезапуска.
+const dataFile = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 
-try {
-  if (fs.existsSync(usersFile)) {
-    for (const [id, profile] of Object.entries(JSON.parse(fs.readFileSync(usersFile, 'utf8')))) users.set(id, profile);
+function readDataFile() {
+  if (!fs.existsSync(dataFile)) return {};
+  try { return JSON.parse(fs.readFileSync(dataFile, 'utf8')); }
+  catch (error) {
+    console.error('Не удалось загрузить данные:', error.message);
+    return {};
   }
-} catch (error) {
-  console.error('Не удалось загрузить пользователей:', error.message);
 }
+
+const storedData = readDataFile();
+// Держим весь набор данных в памяти текущего процесса и записываем его атомарно.
+// Это не даёт параллельным запросам затереть изменения друг друга.
+const dataStore = {
+  ...storedData,
+  users: { ...(storedData.users || {}) }
+};
+
+// Однократно подхватываем старые сохранения, если они остались от предыдущей версии.
+const legacyUsersFile = path.join(__dirname, 'users.json');
+if (!Object.keys(dataStore.users).length && fs.existsSync(legacyUsersFile)) {
+  try {
+    Object.assign(dataStore.users, JSON.parse(fs.readFileSync(legacyUsersFile, 'utf8')));
+  } catch (error) {
+    console.error('Не удалось перенести старые данные пользователей:', error.message);
+  }
+}
+for (const [id, profile] of Object.entries(dataStore.users)) users.set(id, profile);
 
 function saveUsers() {
-  try { fs.writeFileSync(usersFile, JSON.stringify(Object.fromEntries(users), null, 2)); }
-  catch (error) { console.error('Не удалось сохранить пользователей:', error.message); }
+  try {
+    dataStore.users = Object.fromEntries(users);
+    const temporaryFile = `${dataFile}.tmp`;
+    fs.writeFileSync(temporaryFile, JSON.stringify(dataStore, null, 2));
+    fs.renameSync(temporaryFile, dataFile);
+  } catch (error) {
+    console.error('Не удалось сохранить пользователей:', error.message);
+  }
 }
+
+// Если были данные старого users.json, сразу переносим их в основной файл.
+if (users.size) saveUsers();
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -87,6 +118,8 @@ function getProfile(tgUser) {
     saveUsers();
   }
   const profile = users.get(id);
+  // Всегда сохраняем профиль в памяти под Telegram ID, а не в браузере устройства.
+  // Поэтому повторный вход с другого устройства получает те же данные.
   let changed = false;
   if (!profile.gifts) { profile.gifts = { bear: 0, rose: 0 }; changed = true; }
   if (!Object.prototype.hasOwnProperty.call(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
