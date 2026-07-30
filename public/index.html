@@ -8,14 +8,15 @@
 </head>
 <body>
   <main>
-    <header><div class="avatar" id="avatar">✦</div><div><b id="name">Загрузка...</b><small>Твой личный кабинет</small></div><div class="stars">⭐ <span id="stars">—</span></div></header>
+    <header><div class="avatar" id="avatar">✦</div><button id="profileButton" class="profile-button"><b id="name">Загрузка...</b><small>Твой личный кабинет</small></button><div class="stars">⭐ <span id="stars">—</span></div></header>
     <section class="hero"><span>TELEGRAM MINI APP</span><h1>Привет,<br><strong id="heroName">друг</strong> 👋</h1><p>Получай бонусы и управляй профилем прямо в Telegram.</p></section>
     <section class="card"><div><small>ЕЖЕДНЕВНЫЙ БОНУС</small><h2>+100 ⭐</h2><p>Заходи каждый день и забирай награду.</p></div><button id="daily">Забрать</button></section>
     <section class="cases-section">
       <div class="section-title"><div><small>ИСПЫТАЙ УДАЧУ</small><h2>Кейсы</h2></div><span>🎁</span></div>
       <div id="cases" class="cases"></div>
     </section>
-    <section class="stats"><div><small>БАЛАНС</small><b>⭐ <span id="statStars">—</span></b></div><div><small>ЗАДАНИЯ</small><b id="tasks">—</b></div></section>
+    <section class="stats"><div><small>ЗВЁЗДЫ ДЛЯ КЕЙСОВ</small><b>⭐ <span id="statStars">—</span></b></div><div><small>ЗАДАНИЯ</small><b id="tasks">—</b></div></section>
+    <div id="profileModal" class="modal"><div class="modal-box profile-box"><h2>Личный кабинет</h2><div class="profile-info"><p>⭐ Звёзды для кейсов: <b id="profileCaseStars">—</b></p><p>🏆 Призовые звёзды: <b id="profilePrizeStars">—</b></p><p>📅 Регистрация: <b id="profileRegistered">—</b></p></div><label>Промокод<input id="promoCode" maxlength="40" placeholder="Введите промокод"></label><button id="promoButton">Активировать</button><label>Ссылка для пополнения<input id="topupLink" type="url" maxlength="500" placeholder="https://..."></label><button id="topupButton">Сохранить ссылку</button><button id="closeProfile">Закрыть</button></div></div>
     <div id="caseModal" class="modal"><div class="modal-box"><div id="caseIcon" class="case-icon">🎁</div><h2 id="caseTitle">Халява</h2><div id="reel" class="reel">Открываем...</div><p id="rewardText"></p><button id="closeModal">Закрыть</button></div></div>
     <div id="toast"></div>
   </main>

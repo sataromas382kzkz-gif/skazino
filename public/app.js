@@ -10,10 +10,20 @@ function render(user, data) {
   const name=user.first_name||'друг';
   const receivedRecently=data.lastDailyAt && Date.now()-data.lastDailyAt < 24*60*60*1000;
   $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
-  $('stars').textContent=data.stars; $('statStars').textContent=data.stars; $('tasks').textContent=data.tasks;
+  $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0; $('tasks').textContent=data.tasks;
+  if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
+  if ($('profilePrizeStars')) $('profilePrizeStars').textContent=data.prizeStars ?? 0;
+  if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
+  $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
+  $('profilePrizeStars').textContent=data.prizeStars ?? 0;
+  $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
   $('daily').disabled=receivedRecently; $('daily').textContent=receivedRecently?'Получено':'Забрать';
 }
 $('daily').onclick=async()=>{ try { const data=await request('/api/daily',{method:'POST'}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
+$('profileButton').onclick=()=>{ $('profileModal').classList.add('visible'); $('promoCode').value=profile?.promoCode || ''; $('topupLink').value=profile?.topupLink || ''; };
+$('closeProfile').onclick=()=> $('profileModal').classList.remove('visible');
+$('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
+$('topupButton').onclick=async()=>{ try { const data=await request('/api/profile/topup',{method:'POST',body:JSON.stringify({link:$('topupLink').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 function rewardImage(reward) {
   return reward.image || reward.imageUrl || reward.imagePath || null;
 }
@@ -38,7 +48,7 @@ function showCase(item) {
   button.onclick=()=>openCase(item, button); $('cases').append(card);
 }
 async function openCase(item, button) {
-  if (!profile || profile.stars < item.price) return toast('Недостаточно звёзд для открытия кейса');
+  if (!profile || (profile.caseStars ?? profile.stars ?? 0) < item.price) return toast('Недостаточно звёзд для открытия кейса');
   button.disabled=true;
   const modal=$('caseModal');
   const reel=$('reel');

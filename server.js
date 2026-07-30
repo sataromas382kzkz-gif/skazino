@@ -72,20 +72,32 @@ function getProfile(tgUser) {
     users.set(id, {
       id,
       name: tgUser.first_name || 'Пользователь',
+      registeredAt: Date.now(),
       stars: 100,
+      caseStars: 100,
+      prizeStars: 0,
       tasks: 0,
       gifts: { bear: 0, rose: 0 },
+      promoCode: '',
+      topupLink: '',
       lastDailyAt: null
     });
     saveUsers();
   }
   const profile = users.get(id);
-  if (!profile.gifts) profile.gifts = { bear: 0, rose: 0 };
+  let changed = false;
+  if (!profile.gifts) { profile.gifts = { bear: 0, rose: 0 }; changed = true; }
+  if (!Object.prototype.hasOwnProperty.call(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
+  if (!Object.prototype.hasOwnProperty.call(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
+  if (!Object.prototype.hasOwnProperty.call(profile, 'prizeStars')) { profile.prizeStars = 0; changed = true; }
+  if (!Object.prototype.hasOwnProperty.call(profile, 'promoCode')) { profile.promoCode = ''; changed = true; }
+  if (!Object.prototype.hasOwnProperty.call(profile, 'topupLink')) { profile.topupLink = ''; changed = true; }
   if (!Object.prototype.hasOwnProperty.call(profile, 'lastDailyAt')) {
     profile.lastDailyAt = profile.lastDaily ? new Date(`${profile.lastDaily}T00:00:00.000Z`).getTime() : null;
     delete profile.lastDaily;
-    saveUsers();
+    changed = true;
   }
+  if (changed) saveUsers();
   return profile;
 }
 
@@ -128,7 +140,8 @@ app.post('/api/daily', (req, res) => {
     const remainingHours = Math.ceil((cooldown - (now - profile.lastDailyAt)) / 3600000);
     return res.status(400).json({ error: `Бонус будет доступен через ${remainingHours} ч.` });
   }
-  profile.stars += 100;
+  profile.caseStars += 100;
+  profile.stars = profile.caseStars;
   profile.tasks += 1;
   profile.lastDailyAt = now;
   saveUsers();
@@ -139,17 +152,46 @@ app.get('/api/cases', (req, res) => {
   res.json(Object.entries(cases).map(([id, item]) => ({ id, ...item })));
 });
 
+app.post('/api/profile/topup', (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  const profile = getProfile(tgUser);
+  const link = String(req.body?.link || '').trim();
+  if (link && !/^https?:\/\//i.test(link)) return res.status(400).json({ error: 'Ссылка должна начинаться с http:// или https://' });
+  profile.topupLink = link;
+  saveUsers();
+  res.json({ profile, message: 'Ссылка сохранена' });
+});
+
+app.post('/api/profile/promo', (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  const profile = getProfile(tgUser);
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  if (!code) return res.status(400).json({ error: 'Введите промокод' });
+  if (profile.usedPromoCodes?.includes(code)) return res.status(400).json({ error: 'Промокод уже использован' });
+  const promo = { WELCOME: 100 }[code];
+  if (!promo) return res.status(400).json({ error: 'Промокод не найден' });
+  profile.caseStars += promo;
+  profile.stars = profile.caseStars;
+  profile.usedPromoCodes = [...(profile.usedPromoCodes || []), code];
+  profile.promoCode = code;
+  saveUsers();
+  res.json({ profile, message: `Начислено ⭐${promo}` });
+});
+
 app.post('/api/cases/:caseId/open', (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   const selectedCase = cases[req.params.caseId];
   if (!selectedCase) return res.status(404).json({ error: 'Кейс не найден' });
   const profile = getProfile(tgUser);
-  if (profile.stars < selectedCase.price) return res.status(400).json({ error: 'Недостаточно звёзд' });
+  if (profile.caseStars < selectedCase.price) return res.status(400).json({ error: 'Недостаточно звёзд для кейса' });
 
   const reward = drawReward(selectedCase.rewards);
-  profile.stars -= selectedCase.price;
-  if (reward.type === 'stars') profile.stars += reward.amount;
+  profile.caseStars -= selectedCase.price;
+  profile.stars = profile.caseStars;
+  if (reward.type === 'stars') profile.prizeStars += reward.amount;
   else profile.gifts[reward.type] += 1;
   saveUsers();
   res.json({ profile, reward });
