@@ -3,6 +3,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,9 +16,16 @@ const port = Number(process.env.PORT || 3000);
 const isVercel = process.env.VERCEL === '1';
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
+// Локальная SQLite-база находится на компьютере рядом с приложением и переживает перезапуски.
+const databaseFile = process.env.DATABASE_FILE || path.join(__dirname, 'users.sqlite3');
+const db = new Database(databaseFile);
+db.pragma('journal_mode = WAL');
+db.exec(`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, profile TEXT NOT NULL)`);
+const writeUser = db.prepare(`INSERT INTO users (id, profile) VALUES (?, ?)
+  ON CONFLICT(id) DO UPDATE SET profile = excluded.profile`);
 const users = new Map();
-// Храним пользователей в data.json: это файл данных проекта, а не users.json,
-// который раньше создавался заново и не загружался после перезапуска.
+
+// data.json остаётся источником настроек кейсов/промокодов, а пользователи живут в SQLite.
 const dataFile = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 
 function readDataFile() {
@@ -29,38 +37,40 @@ function readDataFile() {
   }
 }
 
-const storedData = readDataFile();
-// Держим весь набор данных в памяти текущего процесса и записываем его атомарно.
-// Это не даёт параллельным запросам затереть изменения друг друга.
-const dataStore = {
-  ...storedData,
-  users: { ...(storedData.users || {}) }
-};
-
-// Однократно подхватываем старые сохранения, если они остались от предыдущей версии.
-const legacyUsersFile = path.join(__dirname, 'users.json');
-if (!Object.keys(dataStore.users).length && fs.existsSync(legacyUsersFile)) {
-  try {
-    Object.assign(dataStore.users, JSON.parse(fs.readFileSync(legacyUsersFile, 'utf8')));
-  } catch (error) {
-    console.error('Не удалось перенести старые данные пользователей:', error.message);
-  }
+// Загружаем профили из SQLite при старте приложения.
+for (const row of db.prepare('SELECT id, profile FROM users').all()) {
+  try { users.set(row.id, JSON.parse(row.profile)); }
+  catch (error) { console.error(`Не удалось прочитать профиль ${row.id}:`, error.message); }
 }
-for (const [id, profile] of Object.entries(dataStore.users)) users.set(id, profile);
 
 function saveUsers() {
-  try {
-    dataStore.users = Object.fromEntries(users);
-    const temporaryFile = `${dataFile}.tmp`;
-    fs.writeFileSync(temporaryFile, JSON.stringify(dataStore, null, 2));
-    fs.renameSync(temporaryFile, dataFile);
-  } catch (error) {
-    console.error('Не удалось сохранить пользователей:', error.message);
-  }
+  const transaction = db.transaction(() => {
+    for (const [id, profile] of users) writeUser.run(id, JSON.stringify(profile));
+  });
+  try { transaction(); }
+  catch (error) { console.error('Не удалось сохранить пользователей:', error.message); }
 }
 
-// Если были данные старого users.json, сразу переносим их в основной файл.
-if (users.size) saveUsers();
+// Однократный импорт старых профилей из data.json/users.json в SQLite.
+const storedData = readDataFile();
+const oldUsers = storedData.users || {};
+const legacyUsersFile = path.join(__dirname, 'users.json');
+if (!Object.keys(oldUsers).length && fs.existsSync(legacyUsersFile)) {
+  try { Object.assign(oldUsers, JSON.parse(fs.readFileSync(legacyUsersFile, 'utf8'))); }
+  catch (error) { console.error('Не удалось перенести старые данные пользователей:', error.message); }
+}
+for (const [id, profile] of Object.entries(oldUsers)) if (!users.has(id)) users.set(id, profile);
+if (Object.keys(oldUsers).length) saveUsers();
+// После импорта не оставляем старый JSON источником пользовательских данных.
+if (Object.keys(oldUsers).length && storedData.users) {
+  try {
+    const cleanData = { ...storedData };
+    delete cleanData.users;
+    const temporaryFile = `${dataFile}.tmp`;
+    fs.writeFileSync(temporaryFile, JSON.stringify(cleanData, null, 2));
+    fs.renameSync(temporaryFile, dataFile);
+  } catch (error) { console.error('Не удалось очистить старые данные:', error.message); }
+}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));

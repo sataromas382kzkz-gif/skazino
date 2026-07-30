@@ -37,11 +37,11 @@ function escapeHtml(value) {
 function rewardMarkup(reward) {
   const label=escapeHtml(reward?.label || 'Приз');
   const image=rewardImage(reward);
-  // Подпись теперь всегда видна: даже если картинка не загрузилась,
-  // карточка не будет пустой в Telegram WebView или при отсутствующем asset.
+  // Всегда оставляем два одинаковых ряда: поэтому призы с картинкой и без неё
+  // имеют одинаковую высоту и подпись находится в одном месте.
   return image
     ? `<img src="${escapeHtml(image)}" alt="${label}" onerror="this.hidden=true"><span>${label}</span>`
-    : `<span>${label}</span>`;
+    : `<span class="reel-placeholder" aria-hidden="true"></span><span>${label}</span>`;
 }
 function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
