@@ -106,6 +106,12 @@ async function initDatabase() {
       profile JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`;
+    // Уникальный ключ не позволяет активировать один промокод разными Telegram-аккаунтами.
+    await db.sql`CREATE TABLE IF NOT EXISTS promo_claims (
+      code TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
     databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
   } catch (error) {
@@ -142,6 +148,23 @@ async function ensureDatabaseReady() {
     databaseMode = isVercel ? 'unavailable' : 'memory';
   });
   await databaseReady;
+}
+
+async function claimPromoCode(code, userId) {
+  await ensureDatabaseReady();
+  if (databaseMode === 'postgres') {
+    // Учитываем и активации, сделанные до появления таблицы promo_claims.
+    const previousUse = await db.sql`SELECT id FROM users
+      WHERE id <> ${String(userId)} AND profile->'usedPromoCodes' ? ${code} LIMIT 1`;
+    if (previousUse.rowCount) return false;
+    const result = await db.sql`INSERT INTO promo_claims (code, user_id) VALUES (${code}, ${String(userId)})
+      ON CONFLICT (code) DO NOTHING RETURNING code`;
+    return result.rowCount === 1;
+  }
+  // Локальное хранилище: ищем код во всех профилях, так же как в общей таблице PostgreSQL.
+  return !Object.values(profiles).some(existing =>
+    String(existing.id) !== String(userId) && existing.usedPromoCodes?.includes(code)
+  );
 }
 
 async function saveUser(profile) {
@@ -259,6 +282,18 @@ const cases = {
       { label: '🌹 Роза Telegram', type: 'rose', chance: 4 },
       { label: '⭐ 100 звёзд', type: 'stars', amount: 100, chance: 1 }
     ]
+  },
+  lucky: {
+    name: 'КЕЙС УДАЧИ',
+    price: 100,
+    rewards: [
+      { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 50 },
+      { label: '⭐ 15 звёзд', type: 'stars', amount: 15, chance: 30 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 10 },
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 4 },
+      { label: '💐 Букет Telegram', type: 'bouquet', chance: 3 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 3 }
+    ]
   }
 };
 
@@ -327,6 +362,14 @@ app.post('/api/profile/promo', async (req, res) => {
   if (!Object.prototype.hasOwnProperty.call(promoCodes, code)) return res.status(400).json({ error: 'Промокод не найден' });
   const promo = Number(promoCodes[code]);
   if (!Number.isInteger(promo) || promo <= 0) return res.status(500).json({ error: 'Промокод настроен неправильно' });
+  try {
+    if (!await claimPromoCode(code, profile.id)) {
+      return res.status(400).json({ error: 'Промокод уже использован другим аккаунтом' });
+    }
+  } catch (error) {
+    console.error(error);
+    return res.status(503).json({ error: 'Не удалось проверить промокод' });
+  }
   profile.caseStars += promo;
   profile.stars = profile.caseStars;
   profile.usedPromoCodes = [...(profile.usedPromoCodes || []), code];

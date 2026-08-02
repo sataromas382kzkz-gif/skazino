@@ -26,15 +26,14 @@ function renderGifts() {
   // У старых профилей giftItems формируется сервером из уже накопленных gifts.
   const gifts = profile?.giftItems || [];
   $('giftsList').innerHTML = gifts.length ? gifts.slice().reverse().map(gift => {
-    const type = gift.type === 'rose' ? 'rose' : 'bear';
-    const icon = type === 'rose' ? '🌹' : '🧸';
-    const name = rewardName(gift) === 'Приз' ? (type === 'rose' ? 'Роза Telegram' : 'Мишка Telegram') : rewardName(gift);
-    return `<article class="gift-card"><span class="gift-icon">${icon}</span><div><b>${escapeHtml(name)}</b><small>Выбито из кейса</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Вывести</a></article>`;
+    const fallbackNames = { bear: 'Мишка Telegram', rose: 'Роза Telegram', cake: 'Торт Telegram', bouquet: 'Букет Telegram', rocket: 'Ракета Telegram' };
+    const name = rewardName(gift) === 'Приз' ? (fallbackNames[gift.type] || 'Подарок Telegram') : rewardName(gift);
+    return `<article class="gift-card"><span class="gift-icon">${rewardEmoji(gift)}</span><div><b>${escapeHtml(name)}</b><small>Выбито из кейса</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Вывести</a></article>`;
   }).join('') : '<p class="empty-gifts">Пока нет подарков. Откройте кейс — и они появятся здесь.</p>';
 }
 $('giftsButton').onclick=()=>{ renderGifts(); $('giftsModal').classList.add('visible'); };
 $('withdrawStarsButton').onclick=()=>{
-  if ((profile?.prizeStars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 призовых звёзд');
+  if ((profile?.prizeStars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 звёзд');
   window.open('https://t.me/murarru', '_blank', 'noopener');
 };
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
@@ -43,6 +42,9 @@ $('topupLink').onclick=()=>$('topupLink').select();
 function rewardEmoji(reward) {
   if (reward?.type === 'bear') return '🧸';
   if (reward?.type === 'rose') return '🌹';
+  if (reward?.type === 'cake') return '🎂';
+  if (reward?.type === 'bouquet') return '💐';
+  if (reward?.type === 'rocket') return '🚀';
   return '⭐';
 }
 function escapeHtml(value) {
