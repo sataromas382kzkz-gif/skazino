@@ -20,5 +20,5 @@ export const promoCodes = {
   WELCOME9: 100,
   WELCOME10: 100,
   WELCOME11: 100,
-  EBLAN10000
+  EBLAN10000: 10000
 };
