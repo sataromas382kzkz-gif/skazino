@@ -297,16 +297,31 @@ const cases = {
       { label: '💐 Букет Telegram', type: 'bouquet', chance: 3 },
       { label: '🚀 Ракета Telegram', type: 'rocket', chance: 3 }
     ]
+  },
+  baron: {
+    name: 'КЕЙС БАРОНА',
+    image: '/case-baron.png',
+    price: 75,
+    rewards: [
+      { label: '🧸 Мишка Telegram', type: 'bear', chance: 30 },
+      { label: '💝 Сердце Telegram', type: 'heart', chance: 30 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 20 },
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 10 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 7 },
+      { label: '💍 Кольцо Telegram', type: 'ring', chance: 3 }
+    ]
   }
 };
 
 function drawReward(rewards) {
-  const roll = Math.random() * 100;
+  const totalChance = rewards.reduce((total, reward) => total + Number(reward.chance), 0);
+  if (totalChance <= 0) throw new Error('У кейса не настроены шансы призов');
+  const roll = Math.random() * totalChance;
   let total = 0;
   return rewards.find(reward => {
-    total += reward.chance;
+    total += Number(reward.chance);
     return roll < total;
-  });
+  }) || rewards.at(-1);
 }
 
 app.get('/api/me', async (req, res) => {
@@ -393,12 +408,21 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
   catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   if (profile.caseStars < selectedCase.price) return res.status(400).json({ error: 'Недостаточно звёзд для кейса' });
 
-  const reward = drawReward(selectedCase.rewards);
+  let reward;
+  try { reward = drawReward(selectedCase.rewards); }
+  catch (error) {
+    console.error(`Ошибка настройки кейса ${req.params.caseId}:`, error.message);
+    return res.status(500).json({ error: 'Кейс временно недоступен' });
+  }
+  profile.caseStars = Number(profile.caseStars) || 0;
+  profile.prizeStars = Number(profile.prizeStars) || 0;
   profile.caseStars -= selectedCase.price;
   profile.stars = profile.caseStars;
-  if (reward.type === 'stars') profile.prizeStars += reward.amount;
+  if (reward.type === 'stars') profile.prizeStars += Number(reward.amount) || 0;
   else {
-    profile.gifts[reward.type] = (profile.gifts[reward.type] || 0) + 1;
+    profile.gifts ||= {};
+    profile.giftItems ||= [];
+    profile.gifts[reward.type] = (Number(profile.gifts[reward.type]) || 0) + 1;
     profile.giftItems.push({
       id: crypto.randomUUID(),
       type: reward.type,

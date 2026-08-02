@@ -71,7 +71,7 @@ function renderGifts() {
   // У старых профилей giftItems формируется сервером из уже накопленных gifts.
   const gifts = profile?.giftItems || [];
   $('giftsList').innerHTML = gifts.length ? gifts.slice().reverse().map(gift => {
-    const fallbackNames = { bear: 'Мишка Telegram', rose: 'Роза Telegram', cake: 'Торт Telegram', bouquet: 'Букет Telegram', rocket: 'Ракета Telegram' };
+    const fallbackNames = { bear: 'Мишка Telegram', heart: 'Сердце Telegram', rose: 'Роза Telegram', cake: 'Торт Telegram', bouquet: 'Букет Telegram', rocket: 'Ракета Telegram', ring: 'Кольцо Telegram' };
     const name = rewardName(gift) === 'Приз' ? (fallbackNames[gift.type] || 'Подарок Telegram') : rewardName(gift);
     return `<article class="gift-card"><span class="gift-icon">${rewardEmoji(gift)}</span><div><b>${escapeHtml(name)}</b><small>Выбито из кейса</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Вывести</a></article>`;
   }).join('') : '<p class="empty-gifts">Пока нет подарков. Откройте кейс — и они появятся здесь.</p>';
@@ -86,10 +86,12 @@ $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile
 $('topupLink').onclick=()=>$('topupLink').select();
 function rewardEmoji(reward) {
   if (reward?.type === 'bear') return '🧸';
+  if (reward?.type === 'heart') return '💝';
   if (reward?.type === 'rose') return '🌹';
   if (reward?.type === 'cake') return '🎂';
   if (reward?.type === 'bouquet') return '💐';
   if (reward?.type === 'rocket') return '🚀';
+  if (reward?.type === 'ring') return '💍';
   return '⭐';
 }
 function escapeHtml(value) {
@@ -152,8 +154,8 @@ function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
   const card=document.createElement('article');
   card.className='case-card';
-  // Все изображения кейсов используют один и тот же контейнер и одинаковое
-  // позиционирование: никаких индивидуальных сдвигов для «Удачи».
+  // Изображение «Барона» использует ту же стандартную посадку, что и «Халява».
+  // Отдельная коррекция сохранена только для уже существующего изображения «Удачи».
   const caseArt = item.image
     ? `<img class="case-art-image${item.id === 'lucky' ? ' case-art-image--lucky' : ''}" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
     : '🎁';
