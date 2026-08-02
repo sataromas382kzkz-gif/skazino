@@ -15,10 +15,20 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 const botToken = process.env.BOT_TOKEN;
 const appUrl = process.env.APP_URL;
-const isVercel = Boolean(process.env.VERCEL);
-// Vercel/Neon могут назвать строку подключения по-разному. Пакет
-// @vercel/postgres читает именно POSTGRES_URL, поэтому нормализуем её до старта SQL-клиента.
+// VERCEL обычно доступна в Runtime, но определяем serverless-среду и по
+// служебным переменным: иначе функция ошибочно пытается писать в /var/task/data.
+const isVercel = Boolean(
+  process.env.VERCEL
+  || process.env.VERCEL_ENV
+  || process.env.VERCEL_REGION
+  || process.env.AWS_LAMBDA_FUNCTION_NAME
+  || process.cwd() === '/var/task'
+);
+// Имена Environment Variables регистрозависимы. Поддерживаем также
+// `postgres_url`, если именно так переменная была создана в панели Vercel.
+// Пакет @vercel/postgres читает POSTGRES_URL, поэтому нормализуем её до старта SQL-клиента.
 const postgresUrl = process.env.POSTGRES_URL
+  || process.env.postgres_url
   || process.env.POSTGRES_URL_NON_POOLING
   || process.env.DATABASE_URL
   || process.env.POSTGRES_PRISMA_URL;
@@ -71,11 +81,16 @@ async function initDatabase() {
   // На локальной машине файл удобен для разработки. На Vercel он эфемерный,
   // поэтому при настроенной БД нельзя незаметно переключаться на него.
   if (!databaseConfigured) {
+    // Файловая система Vercel доступна только для чтения (кроме /tmp) и не
+    // является постоянным хранилищем. Не пытаемся создавать data/users.json.
+    if (isVercel) {
+      databaseMode = 'unavailable';
+      throw new Error('Не задана строка подключения PostgreSQL: добавьте POSTGRES_URL (имя регистрозависимо) в Environment Variables проекта Vercel');
+    }
     await ensureLocalDatabase();
     profiles = await readLocalProfiles();
     databaseMode = 'local';
     console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
-    if (isVercel) console.warn('На Vercel локальный файл временный: добавьте рабочий POSTGRES_URL для постоянных сохранений.');
     return;
   }
   try {
@@ -159,6 +174,8 @@ async function getProfile(tgUser) {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+// Необязательные иконки браузера не должны засорять логи Vercel ответами 404.
+app.get(['/favicon.ico', '/favicon.png'], (req, res) => res.status(204).end());
 
 // Vercel передаёт запросы в этот Express-инстанс через serverless function.
 // Явный fallback гарантирует, что корень домена всегда отдаёт Mini App.
