@@ -31,7 +31,13 @@ const postgresUrl = process.env.POSTGRES_URL
   || process.env.postgres_url
   || process.env.POSTGRES_URL_NON_POOLING
   || process.env.DATABASE_URL
-  || process.env.POSTGRES_PRISMA_URL;
+  || process.env.POSTGRES_PRISMA_URL
+  // Vercel добавляет префикс имени подключённой интеграции Neon.
+  // В этом проекте интеграция называется `skazinodatabase`.
+  || process.env.skazinodatabase_POSTGRES_URL
+  || process.env.skazinodatabase_POSTGRES_URL_NON_POOLING
+  || process.env.skazinodatabase_POSTGRES_PRISMA_URL
+  || process.env.skazinodatabase_DATABASE_URL_UNPOOLED;
 if (postgresUrl && !process.env.POSTGRES_URL) process.env.POSTGRES_URL = postgresUrl;
 const databaseConfigured = Boolean(postgresUrl);
 // Явно передаём строку подключения: импортированный `sql` считывает переменные
@@ -85,7 +91,7 @@ async function initDatabase() {
     // является постоянным хранилищем. Не пытаемся создавать data/users.json.
     if (isVercel) {
       databaseMode = 'unavailable';
-      throw new Error('Не задана строка подключения PostgreSQL: добавьте POSTGRES_URL (имя регистрозависимо) в Environment Variables проекта Vercel');
+      throw new Error('Не задана строка подключения PostgreSQL: добавьте POSTGRES_URL или подключите Neon-переменную с префиксом интеграции');
     }
     await ensureLocalDatabase();
     profiles = await readLocalProfiles();
