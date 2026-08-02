@@ -46,6 +46,7 @@ const db = databaseConfigured ? createPool({ connectionString: postgresUrl }) : 
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 let databaseReady;
 let databaseMode = databaseConfigured ? 'postgres' : 'local';
+let databaseInitError = null;
 let profiles = {};
 let localWriteQueue = Promise.resolve();
 
@@ -122,15 +123,32 @@ async function initDatabase() {
 }
 
 databaseReady = initDatabase().catch(error => {
+  databaseInitError = error;
   console.error('Не удалось открыть базу пользователей:', error.message);
   // На Vercel нельзя подменять постоянную БД памятью функции: она очищается
   // при следующем холодном запуске (обычно это выглядит как потеря через минуты).
   databaseMode = isVercel ? 'unavailable' : 'memory';
 });
 
-async function saveUser(profile) {
+// Каждый холодный запуск Vercel получает свой экземпляр функции. Если переменная
+// БД оказалась недоступна в одном из экземпляров, повторяем инициализацию перед
+// запросом: это исключает случайные 503 после уже успешного подключения.
+async function ensureDatabaseReady() {
   await databaseReady;
-  if (databaseMode === 'unavailable' || databaseMode === 'memory') throw new Error('Постоянная база данных недоступна');
+  if (databaseMode !== 'unavailable' || !databaseConfigured) return;
+  databaseReady = initDatabase().catch(error => {
+    databaseInitError = error;
+    console.error('Повторное подключение к базе не удалось:', error.message);
+    databaseMode = isVercel ? 'unavailable' : 'memory';
+  });
+  await databaseReady;
+}
+
+async function saveUser(profile) {
+  await ensureDatabaseReady();
+  if (databaseMode === 'unavailable' || databaseMode === 'memory') {
+    throw new Error(`Постоянная база данных недоступна${databaseInitError ? `: ${databaseInitError.message}` : ''}`);
+  }
   profiles[String(profile.id)] = profile;
   if (databaseMode === 'postgres') {
     try {
@@ -147,9 +165,11 @@ async function saveUser(profile) {
 
 async function getProfile(tgUser) {
   const id = String(tgUser.id);
-  await databaseReady;
+  await ensureDatabaseReady();
   let profile = profiles[id];
-  if (databaseMode === 'unavailable' || databaseMode === 'memory') throw new Error('Постоянная база данных недоступна');
+  if (databaseMode === 'unavailable' || databaseMode === 'memory') {
+    throw new Error(`Постоянная база данных недоступна${databaseInitError ? `: ${databaseInitError.message}` : ''}`);
+  }
   if (databaseMode === 'postgres') {
     try {
       const result = await db.sql`SELECT profile FROM users WHERE id = ${id}`;
