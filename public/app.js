@@ -33,6 +33,10 @@ function renderGifts() {
   }).join('') : '<p class="empty-gifts">Пока нет подарков. Откройте кейс — и они появятся здесь.</p>';
 }
 $('giftsButton').onclick=()=>{ renderGifts(); $('giftsModal').classList.add('visible'); };
+$('withdrawStarsButton').onclick=()=>{
+  if ((profile?.prizeStars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 призовых звёзд');
+  window.open('https://t.me/murarru', '_blank', 'noopener');
+};
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 // Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
 $('topupLink').onclick=()=>$('topupLink').select();
@@ -68,9 +72,30 @@ function playTone(frequency, duration, volume = 0.05, delay = 0) {
     oscillator.start(start); oscillator.stop(start + duration + 0.02);
   } catch (_) { /* Звук необязателен: приложение работает и без Web Audio. */ }
 }
-function playCaseOpenSound() { playTone(240, .16, .06); playTone(380, .18, .05, .13); }
-function playReelSound() { playTone(720, .055, .025); }
-function playWinSound() { playTone(520, .14, .06); playTone(660, .16, .06, .12); playTone(880, .25, .07, .25); }
+function playCaseOpenSound() { playTone(240, .16, .085); playTone(380, .18, .075, .13); }
+function playReelSound() { playTone(720, .055, .04); }
+function playWinSound() { playTone(520, .14, .09); playTone(660, .16, .09, .12); playTone(880, .25, .1, .25); }
+
+// Ненавязчивая фоновая мелодия: создаётся браузером, без загрузки аудиофайлов.
+let menuMusicTimer;
+let menuMusicStep = 0;
+function playMenuMusicNote() {
+  if (document.hidden || $('caseModal').classList.contains('visible')) return;
+  const notes = [262, 330, 392, 330, 294, 349, 440, 349];
+  playTone(notes[menuMusicStep++ % notes.length], .34, .012);
+}
+function startMenuMusic() {
+  if (menuMusicTimer) return;
+  playMenuMusicNote();
+  menuMusicTimer = setInterval(playMenuMusicNote, 720);
+}
+function stopMenuMusic() {
+  clearInterval(menuMusicTimer);
+  menuMusicTimer = null;
+}
+// Автовоспроизведение блокируется WebView, поэтому запускаем музыку после первого тапа.
+document.addEventListener('pointerdown', startMenuMusic, { once: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopMenuMusic(); });
 function rewardMarkup(reward) {
   const label=escapeHtml(rewardName(reward));
   // Один значок и название отображаются в общей ровной сетке.
@@ -92,6 +117,7 @@ async function openCase(item, button) {
   const reel=$('reel');
   const icon=$('caseIcon');
   modal.classList.add('visible');
+  stopMenuMusic();
   $('caseTitle').textContent=item.name;
   $('rewardText').textContent='Кейс открывается...';
   $('closeModal').disabled=true;
@@ -139,6 +165,6 @@ async function openCase(item, button) {
     button.disabled=false;
   }
 }
-$('closeModal').onclick=()=> $('caseModal').classList.remove('visible');
+$('closeModal').onclick=()=> { $('caseModal').classList.remove('visible'); startMenuMusic(); };
 request('/api/me').then(x=>render(x.user,x.profile)).catch(e=>toast(e.message));
 request('/api/cases').then(cases=>cases.forEach(showCase)).catch(e=>toast(e.message));
