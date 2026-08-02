@@ -182,12 +182,20 @@ async function getProfile(tgUser) {
   }
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
-      caseStars: 100, prizeStars: 0, tasks: 0, gifts: { bear: 0, rose: 0 }, promoCode: '',
+      caseStars: 100, prizeStars: 0, gifts: { bear: 0, rose: 0 }, giftItems: [], promoCode: '',
       usedPromoCodes: [], topupLink: 'https://playerok.com/profile/SaharOK086/products', lastDailyAt: null };
     await saveUser(profile);
   }
   let changed = false;
   if (!profile.gifts) { profile.gifts = { bear: 0, rose: 0 }; changed = true; }
+  // Новые открытия храним отдельными объектами: так в профиле виден каждый
+  // выбитый подарок, а не только суммарное количество по типу.
+  if (!Array.isArray(profile.giftItems)) {
+    profile.giftItems = Object.entries(profile.gifts).flatMap(([type, count]) =>
+      Array.from({ length: Number(count) || 0 }, () => ({ type, receivedAt: Date.now() }))
+    );
+    changed = true;
+  }
   if (!Object.hasOwn(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
   if (!Object.hasOwn(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
   if (!Object.hasOwn(profile, 'prizeStars')) { profile.prizeStars = 0; changed = true; }
@@ -342,7 +350,15 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
   profile.caseStars -= selectedCase.price;
   profile.stars = profile.caseStars;
   if (reward.type === 'stars') profile.prizeStars += reward.amount;
-  else profile.gifts[reward.type] += 1;
+  else {
+    profile.gifts[reward.type] = (profile.gifts[reward.type] || 0) + 1;
+    profile.giftItems.push({
+      id: crypto.randomUUID(),
+      type: reward.type,
+      label: reward.label,
+      receivedAt: Date.now()
+    });
+  }
   try { await saveUser(profile); }
   catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
   res.json({ profile, reward });

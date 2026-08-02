@@ -10,19 +10,29 @@ function render(user, data) {
   const name=user.first_name||'друг';
   const receivedRecently=data.lastDailyAt && Date.now()-data.lastDailyAt < 24*60*60*1000;
   $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
-  $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0; $('tasks').textContent=data.tasks;
+  $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profilePrizeStars')) $('profilePrizeStars').textContent=data.prizeStars ?? 0;
   if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
-  $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
-  $('profilePrizeStars').textContent=data.prizeStars ?? 0;
-  $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
   $('daily').disabled=receivedRecently; $('daily').textContent=receivedRecently?'Получено':'Забрать';
 }
 $('daily').onclick=async()=>{ try { const data=await request('/api/daily',{method:'POST'}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 const TOPUP_LINK='https://playerok.com/profile/SaharOK086/products';
 $('profileButton').onclick=()=>{ $('profileModal').classList.add('visible'); $('promoCode').value=''; $('topupLink').value=TOPUP_LINK; $('topupLinkOpen').href=TOPUP_LINK; };
 $('profileModal').addEventListener('click', event=>{ if (event.target === $('profileModal')) $('profileModal').classList.remove('visible'); });
+$('giftsModal').addEventListener('click', event=>{ if (event.target === $('giftsModal')) $('giftsModal').classList.remove('visible'); });
+$('closeGifts').onclick=()=> $('giftsModal').classList.remove('visible');
+function renderGifts() {
+  // У старых профилей giftItems формируется сервером из уже накопленных gifts.
+  const gifts = profile?.giftItems || [];
+  $('giftsList').innerHTML = gifts.length ? gifts.slice().reverse().map(gift => {
+    const type = gift.type === 'rose' ? 'rose' : 'bear';
+    const icon = type === 'rose' ? '🌹' : '🧸';
+    const name = rewardName(gift) === 'Приз' ? (type === 'rose' ? 'Роза Telegram' : 'Мишка Telegram') : rewardName(gift);
+    return `<article class="gift-card"><span class="gift-icon">${icon}</span><div><b>${escapeHtml(name)}</b><small>Выбито из кейса</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Вывести</a></article>`;
+  }).join('') : '<p class="empty-gifts">Пока нет подарков. Откройте кейс — и они появятся здесь.</p>';
+}
+$('giftsButton').onclick=()=>{ renderGifts(); $('giftsModal').classList.add('visible'); };
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 // Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
 $('topupLink').onclick=()=>$('topupLink').select();
@@ -40,6 +50,27 @@ function rewardName(reward) {
   // В названиях призов уже есть emoji. Убираем его, чтобы не показывать дважды.
   return String(reward?.label || 'Приз').replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, '').trim();
 }
+
+// Короткие синтезированные звуки не требуют сторонних файлов и работают
+// в Telegram WebView после пользовательского нажатия на кнопку кейса.
+let audioContext;
+function playTone(frequency, duration, volume = 0.05, delay = 0) {
+  try {
+    audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+    const start = audioContext.currentTime + delay;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(start); oscillator.stop(start + duration + 0.02);
+  } catch (_) { /* Звук необязателен: приложение работает и без Web Audio. */ }
+}
+function playCaseOpenSound() { playTone(240, .16, .06); playTone(380, .18, .05, .13); }
+function playReelSound() { playTone(720, .055, .025); }
+function playWinSound() { playTone(520, .14, .06); playTone(660, .16, .06, .12); playTone(880, .25, .07, .25); }
 function rewardMarkup(reward) {
   const label=escapeHtml(rewardName(reward));
   // Один значок и название отображаются в общей ровной сетке.
@@ -69,6 +100,7 @@ async function openCase(item, button) {
   icon.classList.remove('case-opening');
   void icon.offsetWidth;
   icon.classList.add('case-opening');
+  playCaseOpenSound();
 
   try {
     // Получаем реальный приз до визуальной части, но показываем его только в финале.
@@ -86,6 +118,7 @@ async function openCase(item, button) {
       prize.classList.remove('prize-tick');
       void prize.offsetWidth;
       prize.classList.add('prize-tick');
+      playReelSound();
       ticks+=1;
     };
     showNextReward();
@@ -96,6 +129,7 @@ async function openCase(item, button) {
     prize.innerHTML=rewardMarkup(data.reward);
     prize.classList.add('prize-final');
     reel.classList.add('win');
+    playWinSound();
     $('rewardText').textContent=`Вы получили: ${data.reward.label}`;
     render({first_name:profile.name},data.profile);
   } catch(e) {
