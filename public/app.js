@@ -110,7 +110,7 @@ function showCase(item) {
   // Все изображения кейсов используют один и тот же контейнер и одинаковое
   // позиционирование: никаких индивидуальных сдвигов для «Удачи».
   const caseArt = item.image
-    ? `<img class="case-art-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
+    ? `<img class="case-art-image${item.id === 'lucky' ? ' case-art-image--lucky' : ''}" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
     : '🎁';
   card.innerHTML=`<div class="case-art">${caseArt}</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>Открыть кейс</button>`;
   const button=card.querySelector('button');
