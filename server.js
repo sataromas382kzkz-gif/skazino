@@ -205,7 +205,7 @@ async function getProfile(tgUser) {
   }
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
-      caseStars: 100, prizeStars: 0, gifts: { bear: 0, rose: 0 }, giftItems: [], promoCode: '',
+      caseStars: 100, prizeStars: 0, tasks: 0, gifts: { bear: 0, rose: 0 }, giftItems: [], promoCode: '',
       usedPromoCodes: [], topupLink: 'https://playerok.com/profile/SaharOK086/products', lastDailyAt: null };
     await saveUser(profile);
   }
@@ -222,6 +222,7 @@ async function getProfile(tgUser) {
   if (!Object.hasOwn(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
   if (!Object.hasOwn(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
   if (!Object.hasOwn(profile, 'prizeStars')) { profile.prizeStars = 0; changed = true; }
+  if (!Object.hasOwn(profile, 'tasks')) { profile.tasks = 0; changed = true; }
   if (!Object.hasOwn(profile, 'promoCode')) { profile.promoCode = ''; changed = true; }
   if (!Object.hasOwn(profile, 'usedPromoCodes')) { profile.usedPromoCodes = []; changed = true; }
   if (!Object.hasOwn(profile, 'lastDailyAt')) { profile.lastDailyAt = null; changed = true; }
@@ -275,7 +276,7 @@ const cases = {
   freebie: {
     name: 'КЕЙС ХАЛЯВА',
     image: '/case-freebie.png',
-    price: 100,
+    price: 25,
     rewards: [
       { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70 },
       { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 20 },
@@ -287,7 +288,7 @@ const cases = {
   lucky: {
     name: 'КЕЙС УДАЧИ',
     image: '/case-lucky.png',
-    price: 100,
+    price: 50,
     rewards: [
       { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 50 },
       { label: '⭐ 15 звёзд', type: 'stars', amount: 15, chance: 30 },
@@ -327,13 +328,14 @@ app.post('/api/daily', async (req, res) => {
     const remainingHours = Math.ceil((cooldown - (now - profile.lastDailyAt)) / 3600000);
     return res.status(400).json({ error: `Бонус будет доступен через ${remainingHours} ч.` });
   }
-  profile.caseStars += 100;
+  profile.caseStars = Number(profile.caseStars) || 0;
+  profile.caseStars += 5;
   profile.stars = profile.caseStars;
-  profile.tasks += 1;
+  profile.tasks = (Number(profile.tasks) || 0) + 1;
   profile.lastDailyAt = now;
   try { await saveUser(profile); }
   catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
-  res.json({ profile, message: 'Получено ⭐100' });
+  res.json({ profile, message: 'Получено ⭐5' });
 });
 
 app.get('/api/cases', (req, res) => {

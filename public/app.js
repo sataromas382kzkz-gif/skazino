@@ -4,19 +4,64 @@ const headers = {'Content-Type':'application/json','x-telegram-init-data':tg?.in
 const $ = id => document.getElementById(id);
 const toast = text => { $('toast').textContent=text; $('toast').classList.add('show'); setTimeout(()=>$('toast').classList.remove('show'),2500); };
 let profile;
-async function request(url, options={}) { const response=await fetch(url,{...options,headers:{...headers,...options.headers}}); const data=await response.json(); if(!response.ok) throw Error(data.error||'Ошибка'); return data; }
+let dailyTimer;
+const DAILY_COOLDOWN = 24 * 60 * 60 * 1000;
+function formatRemainingTime(milliseconds) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const hours = String(Math.floor(seconds / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+  const secs = String(seconds % 60).padStart(2, '0');
+  return `${hours}:${minutes}:${secs}`;
+}
+function updateDailyStatus() {
+  const remaining = profile?.lastDailyAt ? DAILY_COOLDOWN - (Date.now() - profile.lastDailyAt) : 0;
+  const available = remaining <= 0;
+  $('daily').disabled = !available;
+  $('daily').textContent = available ? 'Забрать' : 'Получено';
+  $('dailyStatus').textContent = available
+    ? 'Заходи каждый день и забирай награду.'
+    : `Следующая награда через ${formatRemainingTime(remaining)}`;
+}
+function startDailyTimer() {
+  clearInterval(dailyTimer);
+  updateDailyStatus();
+  if (profile?.lastDailyAt && Date.now() - profile.lastDailyAt < DAILY_COOLDOWN) {
+    dailyTimer = setInterval(() => {
+      updateDailyStatus();
+      if (Date.now() - profile.lastDailyAt >= DAILY_COOLDOWN) clearInterval(dailyTimer);
+    }, 1000);
+  }
+}
+async function request(url, options={}) {
+  const response = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await response.json() : null;
+  if (!response.ok) throw Error(data?.error || `Ошибка сервера (${response.status})`);
+  return data;
+}
 function render(user, data) {
   profile=data;
   const name=user.first_name||'друг';
-  const receivedRecently=data.lastDailyAt && Date.now()-data.lastDailyAt < 24*60*60*1000;
   $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
   $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profilePrizeStars')) $('profilePrizeStars').textContent=data.prizeStars ?? 0;
   if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
-  $('daily').disabled=receivedRecently; $('daily').textContent=receivedRecently?'Получено':'Забрать';
+  startDailyTimer();
 }
-$('daily').onclick=async()=>{ try { const data=await request('/api/daily',{method:'POST'}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
+$('daily').onclick=async event=>{
+  const button = event.currentTarget;
+  if (!profile || button.disabled) return;
+  button.disabled = true;
+  try {
+    const data = await request('/api/daily', { method: 'POST' });
+    render({ first_name: profile.name }, data.profile);
+    toast(data.message);
+  } catch (e) {
+    updateDailyStatus();
+    toast(e.message);
+  }
+};
 const TOPUP_LINK='https://playerok.com/profile/SaharOK086/products';
 $('profileButton').onclick=()=>{ $('profileModal').classList.add('visible'); $('promoCode').value=''; $('topupLink').value=TOPUP_LINK; $('topupLinkOpen').href=TOPUP_LINK; };
 $('profileModal').addEventListener('click', event=>{ if (event.target === $('profileModal')) $('profileModal').classList.remove('visible'); });
@@ -170,6 +215,7 @@ async function openCase(item, button) {
   } finally {
     $('closeModal').disabled=false;
     button.disabled=false;
+    if (!modal.classList.contains('visible')) startMenuMusic();
   }
 }
 $('closeModal').onclick=()=> { $('caseModal').classList.remove('visible'); startMenuMusic(); };
