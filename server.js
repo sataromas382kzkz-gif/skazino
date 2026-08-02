@@ -274,6 +274,7 @@ function currentUser(req) {
 const cases = {
   freebie: {
     name: 'КЕЙС ХАЛЯВА',
+    image: '/case-freebie.png',
     price: 100,
     rewards: [
       { label: '⭐ 5 звёзд', type: 'stars', amount: 5, chance: 70 },
@@ -285,6 +286,7 @@ const cases = {
   },
   lucky: {
     name: 'КЕЙС УДАЧИ',
+    image: '/case-lucky.png',
     price: 100,
     rewards: [
       { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 50 },
