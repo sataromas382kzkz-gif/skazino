@@ -154,10 +154,14 @@ function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
   const card=document.createElement('article');
   card.className='case-card';
-  // Изображение «Барона» использует ту же стандартную посадку, что и «Халява».
-  // Отдельная коррекция сохранена только для уже существующего изображения «Удачи».
+  // «Барон» увеличен на 5%; для «Удачи» сохранена отдельная посадка модели.
+  const imageClass = item.id === 'lucky'
+    ? ' case-art-image--lucky'
+    : item.id === 'baron'
+      ? ' case-art-image--baron'
+      : '';
   const caseArt = item.image
-    ? `<img class="case-art-image${item.id === 'lucky' ? ' case-art-image--lucky' : ''}" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
+    ? `<img class="case-art-image${imageClass}" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
     : '🎁';
   card.innerHTML=`<div class="case-art">${caseArt}</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>Открыть кейс</button>`;
   const button=card.querySelector('button');
