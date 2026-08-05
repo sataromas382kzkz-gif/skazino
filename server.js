@@ -11,6 +11,10 @@ const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 import { promoCodes } from './promo-codes.js';
 
+const ADMIN_TELEGRAM_ID = '5310549412';
+const adminStates = new Map();
+const localCustomPromoCodes = new Map();
+
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const botToken = process.env.BOT_TOKEN;
@@ -112,6 +116,12 @@ async function initDatabase() {
       user_id TEXT NOT NULL,
       claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`;
+    await db.sql`CREATE TABLE IF NOT EXISTS custom_promo_codes (
+      code TEXT PRIMARY KEY,
+      amount INTEGER NOT NULL CHECK (amount > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT NOT NULL
+    )`;
     databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
   } catch (error) {
@@ -148,6 +158,29 @@ async function ensureDatabaseReady() {
     databaseMode = isVercel ? 'unavailable' : 'memory';
   });
   await databaseReady;
+}
+
+async function getPromoAmount(code) {
+  if (Object.hasOwn(promoCodes, code)) return Number(promoCodes[code]);
+  await ensureDatabaseReady();
+  if (databaseMode === 'postgres') {
+    const result = await db.sql`SELECT amount FROM custom_promo_codes WHERE code = ${code}`;
+    return result.rows[0] ? Number(result.rows[0].amount) : null;
+  }
+  return localCustomPromoCodes.get(code) ?? null;
+}
+
+async function createCustomPromoCode(code, amount, createdBy) {
+  await ensureDatabaseReady();
+  if (Object.hasOwn(promoCodes, code)) throw new Error('Такой промокод уже существует');
+  if (databaseMode === 'postgres') {
+    const result = await db.sql`INSERT INTO custom_promo_codes (code, amount, created_by)
+      VALUES (${code}, ${amount}, ${createdBy}) ON CONFLICT (code) DO NOTHING RETURNING code`;
+    if (!result.rowCount) throw new Error('Такой промокод уже существует');
+    return;
+  }
+  if (localCustomPromoCodes.has(code)) throw new Error('Такой промокод уже существует');
+  localCustomPromoCodes.set(code, amount);
 }
 
 async function claimPromoCode(code, userId) {
@@ -215,9 +248,17 @@ async function getProfile(tgUser) {
   // выбитый подарок, а не только суммарное количество по типу.
   if (!Array.isArray(profile.giftItems)) {
     profile.giftItems = Object.entries(profile.gifts).flatMap(([type, count]) =>
-      Array.from({ length: Number(count) || 0 }, () => ({ type, receivedAt: Date.now() }))
+      Array.from({ length: Number(count) || 0 }, () => ({ id: createPayoutId('GIFT'), type, receivedAt: Date.now() }))
     );
     changed = true;
+  }
+  // У каждой единицы приза есть независимый ID для проверки перед выводом.
+  for (const gift of profile.giftItems) {
+    if (!gift.id) { gift.id = createPayoutId('GIFT'); changed = true; }
+  }
+  if (!Array.isArray(profile.starPrizeItems)) { profile.starPrizeItems = []; changed = true; }
+  for (const starPrize of profile.starPrizeItems) {
+    if (!starPrize.id) { starPrize.id = createPayoutId('STAR'); changed = true; }
   }
   if (!Object.hasOwn(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
   if (!Object.hasOwn(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
@@ -228,6 +269,31 @@ async function getProfile(tgUser) {
   if (!Object.hasOwn(profile, 'lastDailyAt')) { profile.lastDailyAt = null; changed = true; }
   if (changed) await saveUser(profile);
   return profile;
+}
+
+async function getAllProfiles() {
+  await ensureDatabaseReady();
+  if (databaseMode === 'postgres') {
+    const result = await db.sql`SELECT profile FROM users`;
+    return result.rows.map(row => row.profile);
+  }
+  if (databaseMode === 'local') return Object.values(profiles);
+  throw new Error('Постоянная база данных недоступна');
+}
+
+function createPayoutId(prefix) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+async function findPayoutItem(id) {
+  const profilesList = await getAllProfiles();
+  for (const profile of profilesList) {
+    const gift = (profile.giftItems || []).find(item => item.id === id);
+    if (gift) return { profile, item: gift, type: 'gift' };
+    const starPrize = (profile.starPrizeItems || []).find(item => item.id === id);
+    if (starPrize) return { profile, item: starPrize, type: 'stars' };
+  }
+  return null;
 }
 
 app.use(express.json());
@@ -378,8 +444,8 @@ app.post('/api/profile/promo', async (req, res) => {
   const code = String(req.body?.code || '').trim().toUpperCase();
   if (!code) return res.status(400).json({ error: 'Введите промокод' });
   if (profile.usedPromoCodes?.includes(code)) return res.status(400).json({ error: 'Промокод уже использован' });
-  if (!Object.prototype.hasOwnProperty.call(promoCodes, code)) return res.status(400).json({ error: 'Промокод не найден' });
-  const promo = Number(promoCodes[code]);
+  const promo = await getPromoAmount(code);
+  if (promo === null) return res.status(400).json({ error: 'Промокод не найден' });
   if (!Number.isInteger(promo) || promo <= 0) return res.status(500).json({ error: 'Промокод настроен неправильно' });
   try {
     if (!await claimPromoCode(code, profile.id)) {
@@ -418,8 +484,14 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
   profile.prizeStars = Number(profile.prizeStars) || 0;
   profile.caseStars -= selectedCase.price;
   profile.stars = profile.caseStars;
-  if (reward.type === 'stars') profile.prizeStars += Number(reward.amount) || 0;
-  else {
+  if (reward.type === 'stars') {
+    const amount = Number(reward.amount) || 0;
+    profile.prizeStars += amount;
+    profile.starPrizeItems ||= [];
+    profile.starPrizeItems.push({
+      id: createPayoutId('STAR'), amount, label: reward.label, receivedAt: Date.now()
+    });
+  } else {
     profile.gifts ||= {};
     profile.giftItems ||= [];
     profile.gifts[reward.type] = (Number(profile.gifts[reward.type]) || 0) + 1;
@@ -437,6 +509,72 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
 
 if (botToken && !isVercel) {
   const bot = new Telegraf(botToken);
+  const isAdmin = ctx => String(ctx.from?.id) === ADMIN_TELEGRAM_ID;
+  const adminKeyboard = () => Markup.inlineKeyboard([
+    [Markup.button.callback('👥 Пользователи', 'admin_users')],
+    [Markup.button.callback('🔎 Проверить ID приза', 'admin_check')],
+    [Markup.button.callback('➕ Создать промокод', 'admin_promo')]
+  ]);
+
+  bot.command('admin', async ctx => {
+    if (!isAdmin(ctx)) return;
+    adminStates.delete(String(ctx.from.id));
+    await ctx.reply('Панель администратора', adminKeyboard());
+  });
+  bot.action('admin_users', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    try {
+      const users = await getAllProfiles();
+      await ctx.answerCbQuery();
+      await ctx.reply(`👥 Всего пользователей: ${users.length}`);
+    } catch (error) { await ctx.answerCbQuery('Ошибка базы'); }
+  });
+  bot.action('admin_check', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    adminStates.set(String(ctx.from.id), 'check');
+    await ctx.answerCbQuery();
+    await ctx.reply('Пришлите уникальный ID подарка или звёздного приза (например, GIFT-... или STAR-...).');
+  });
+  bot.action('admin_promo', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    adminStates.set(String(ctx.from.id), 'promo');
+    await ctx.answerCbQuery();
+    await ctx.reply('Пришлите промокод и количество звёзд через пробел. Пример: SUMMER50 50');
+  });
+  bot.on('text', async ctx => {
+    if (!isAdmin(ctx)) return;
+    const userId = String(ctx.from.id);
+    const state = adminStates.get(userId);
+    if (!state || ctx.message.text.startsWith('/')) return;
+    const text = ctx.message.text.trim();
+    try {
+      if (state === 'check') {
+        adminStates.delete(userId);
+        const result = await findPayoutItem(text);
+        if (!result) return ctx.reply('❌ Приз с таким ID не найден.');
+        const owner = result.profile;
+        const item = result.item;
+        const description = result.type === 'gift'
+          ? (item.label || `Подарок: ${item.type}`)
+          : `${item.label || 'Звёздный приз'} (${item.amount} ⭐)`;
+        return ctx.reply(`✅ Приз найден\nID: ${item.id}\nТип: ${result.type === 'gift' ? 'подарок' : 'звёзды'}\n${description}\nВладелец: ${owner.name || 'Пользователь'} (Telegram ID: ${owner.id})\nПолучен: ${new Date(item.receivedAt).toLocaleString('ru-RU')}`);
+      }
+      if (state === 'promo') {
+        const [rawCode, rawAmount, ...extra] = text.split(/\s+/);
+        const code = String(rawCode || '').toUpperCase();
+        const amount = Number(rawAmount);
+        if (extra.length || !/^[A-Z0-9_-]{3,40}$/.test(code) || !Number.isInteger(amount) || amount <= 0 || amount > 1000000) {
+          return ctx.reply('❌ Неверный формат. Пример: SUMMER50 50');
+        }
+        await createCustomPromoCode(code, amount, userId);
+        adminStates.delete(userId);
+        return ctx.reply(`✅ Промокод ${code} создан: ${amount} ⭐. Использовать его сможет только один аккаунт.`);
+      }
+    } catch (error) {
+      return ctx.reply(`❌ ${error.message || 'Не удалось выполнить действие'}`);
+    }
+  });
+
   bot.start(ctx => {
     const button = appUrl
       ? Markup.button.webApp('🚀 Открыть приложение', appUrl)
