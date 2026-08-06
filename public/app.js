@@ -111,6 +111,7 @@ function finishRocketCrash(message) {
   stopRocketAnimation();
   $('rocketBet').disabled = false;
   $('rocketSky').classList.remove('flying');
+  $('rocketStar').style.removeProperty('--flight-delay');
   $('rocketSky').classList.add('crashed');
   $('rocketStatus').textContent = message;
   $('rocketMultiplier').textContent = '💥';
@@ -124,14 +125,10 @@ function renderRocketFrame() {
   const multiplier = rocketMultiplier();
   const multiplierElement = $('rocketMultiplier');
   multiplierElement.textContent = `${multiplier.toFixed(2)}x`;
-  // Постоянная скорость полёта: звезда не зависит от ускорения коэффициента.
-  // Циклическая траектория не даёт ей «застыть» после первого пролёта.
-  const flightProgress = (elapsed % 20_000) / 20_000;
-  const x = flightProgress * 245;
-  const y = -flightProgress * 76 - Math.sin(flightProgress * Math.PI) * 15;
-  const angle = -18 - flightProgress * 12 + Math.sin(flightProgress * Math.PI * 3) * 4;
-  $('rocketStar').style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${angle}deg) scale(${1 + flightProgress * .16})`;
-  if (Date.now() - rocketStatusCheck > 450) {
+  // Полёт выполняется CSS-анимацией, а не JavaScript-transform. Это принципиально:
+  // в некоторых Telegram WebView перерисовка inline transform замирает, тогда как
+  // compositor-анимация CSS продолжает работать плавно.
+  if (Date.now() - rocketStatusCheck > 900) {
     rocketStatusCheck = Date.now();
     request('/api/rocket/status').then(status => {
       if (status.crashed && rocketActive) finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
@@ -151,9 +148,10 @@ function animateRocket(timestamp = performance.now()) {
 function startRocketAnimation() {
   stopRocketAnimation();
   rocketLastFrame = 0;
-  renderRocketFrame(); // первый кадр — сразу при принятии ставки
+  renderRocketFrame(); // коэффициент показывается сразу
+  // Интервал обновляет число даже при ограничении requestAnimationFrame в WebView.
+  rocketTimer = setInterval(renderRocketFrame, 50);
   rocketAnimation = requestAnimationFrame(animateRocket);
-  rocketTimer = setInterval(renderRocketFrame, 80);
 }
 $('rocketBet').addEventListener('input', updateRocketButton);
 $('rocketButton').onclick = async () => {
@@ -171,9 +169,13 @@ $('rocketButton').onclick = async () => {
       rocketStartedAt = data.startedAt;
       rocketStatusCheck = 0;
       $('rocketBet').disabled = true;
-      // Сразу переносим звезду в стартовую точку и запускаем кадр анимации.
-      // Так она не ждёт следующего рендера и не «выезжает» с задержкой.
-      $('rocketStar').style.transform = 'translate3d(0, 0, 0) rotate(-18deg) scale(1)';
+      // Перезапускаем CSS-полёт после получения ставки. Отрицательная задержка
+      // сохраняет верную позицию, если ответ сервера пришёл не мгновенно.
+      const star = $('rocketStar');
+      star.style.removeProperty('--flight-delay');
+      $('rocketSky').classList.remove('flying');
+      void star.offsetWidth;
+      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 7000}ms`);
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
@@ -351,6 +353,11 @@ async function restoreRocketRound() {
     rocketStartedAt = Number(status.startedAt);
     $('rocketBet').value = status.bet;
     $('rocketBet').disabled = true;
+    const star = $('rocketStar');
+    star.style.removeProperty('--flight-delay');
+    $('rocketSky').classList.remove('flying');
+    void star.offsetWidth;
+    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 7000}ms`);
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();
