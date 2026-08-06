@@ -100,6 +100,7 @@ function updateRocketButton() {
   $('rocketButton').textContent = rocketActive ? 'Забрать выигрыш' : `Запустить за ${bet} ⭐`;
 }
 let rocketStatusCheck = 0;
+let rocketLastMultiplierText = '';
 function stopRocketAnimation() {
   cancelAnimationFrame(rocketAnimation);
   clearInterval(rocketTimer);
@@ -124,7 +125,15 @@ function renderRocketFrame() {
   const elapsed = Math.max(0, Date.now() - rocketStartedAt);
   const multiplier = rocketMultiplier();
   const multiplierElement = $('rocketMultiplier');
-  multiplierElement.textContent = `${multiplier.toFixed(2)}x`;
+  const multiplierText = `${multiplier.toFixed(2)}x`;
+  if (multiplierText !== rocketLastMultiplierText) {
+    rocketLastMultiplierText = multiplierText;
+    multiplierElement.textContent = multiplierText;
+    // Короткий импульс на каждом новом значении делает рост коэффициента видимым.
+    multiplierElement.classList.remove('multiplier-tick');
+    void multiplierElement.offsetWidth;
+    multiplierElement.classList.add('multiplier-tick');
+  }
   // Полёт выполняется CSS-анимацией, а не JavaScript-transform. Это принципиально:
   // в некоторых Telegram WebView перерисовка inline transform замирает, тогда как
   // compositor-анимация CSS продолжает работать плавно.
@@ -147,6 +156,7 @@ function animateRocket(timestamp = performance.now()) {
 }
 function startRocketAnimation() {
   stopRocketAnimation();
+  rocketLastMultiplierText = '';
   rocketLastFrame = 0;
   renderRocketFrame(); // коэффициент показывается сразу
   // Интервал обновляет число даже при ограничении requestAnimationFrame в WebView.
@@ -175,7 +185,7 @@ $('rocketButton').onclick = async () => {
       star.style.removeProperty('--flight-delay');
       $('rocketSky').classList.remove('flying');
       void star.offsetWidth;
-      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 7000}ms`);
+      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 9000}ms`);
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
@@ -357,7 +367,7 @@ async function restoreRocketRound() {
     star.style.removeProperty('--flight-delay');
     $('rocketSky').classList.remove('flying');
     void star.offsetWidth;
-    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 7000}ms`);
+    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 9000}ms`);
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();
