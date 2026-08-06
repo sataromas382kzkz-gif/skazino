@@ -300,7 +300,16 @@ async function getProfile(tgUser) {
   for (const gift of profile.giftItems) {
     if (!gift.id) { gift.id = createPayoutId('GIFT'); changed = true; }
   }
-  if (!Array.isArray(profile.starPrizeItems)) { profile.starPrizeItems = []; changed = true; }
+  if (!Array.isArray(profile.starPrizeItems)) {
+    // В старых профилях призовой баланс был только числом. Превращаем его в
+    // отдельный приз, чтобы переход на ставки не «съел» уже выигранные звёзды.
+    const legacyPrizeAmount = Math.max(0, Number(profile.prizeStars) || 0);
+    profile.starPrizeItems = legacyPrizeAmount ? [{
+      id: createPayoutId('STAR'), amount: legacyPrizeAmount, remainingAmount: legacyPrizeAmount,
+      label: '⭐ Ранее полученные призовые звёзды', receivedAt: Date.now(), withdrawalStatus: 'available'
+    }] : [];
+    changed = true;
+  }
   // Статус нужен и пользователю, и администратору: новый приз доступен к выводу,
   // после выдачи администратор отмечает его как выведенный.
   for (const gift of profile.giftItems) {
@@ -309,10 +318,20 @@ async function getProfile(tgUser) {
   for (const starPrize of profile.starPrizeItems) {
     if (!starPrize.id) { starPrize.id = createPayoutId('STAR'); changed = true; }
     if (!starPrize.withdrawalStatus) { starPrize.withdrawalStatus = 'available'; changed = true; }
+    // Сумма может быть частично поставлена в «Ракете». Старые призы считаем
+    // полностью доступными, чтобы миграция не отнимала баланс у игроков.
+    if (!Object.hasOwn(starPrize, 'remainingAmount')) {
+      starPrize.remainingAmount = Math.max(0, Number(starPrize.amount) || 0);
+      changed = true;
+    }
   }
   if (!Object.hasOwn(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
   if (!Object.hasOwn(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
   if (!Object.hasOwn(profile, 'prizeStars')) { profile.prizeStars = 0; changed = true; }
+  const previousRocketStars = Number(profile.rocketStars);
+  const previousPrizeStars = Number(profile.prizeStars);
+  syncRocketStars(profile);
+  if (previousRocketStars !== profile.rocketStars || previousPrizeStars !== profile.prizeStars) changed = true;
   if (!Object.hasOwn(profile, 'tasks')) { profile.tasks = 0; changed = true; }
   if (!Object.hasOwn(profile, 'promoCode')) { profile.promoCode = ''; changed = true; }
   if (!Object.hasOwn(profile, 'usedPromoCodes')) { profile.usedPromoCodes = []; changed = true; }
@@ -429,6 +448,45 @@ const cases = {
   }
 };
 
+function availableRocketStars(profile) {
+  return (profile.starPrizeItems || [])
+    .filter(item => item.withdrawalStatus !== 'withdrawn')
+    .reduce((total, item) => total + Math.max(0, Number(item.remainingAmount) || 0), 0);
+}
+
+function syncRocketStars(profile) {
+  profile.rocketStars = availableRocketStars(profile);
+  // «Призовые» — это фактически ещё не выведенные звёзды. Синхронизация
+  // исправляет устаревшие профили после частичной ставки или вывода.
+  profile.prizeStars = profile.rocketStars;
+  return profile.rocketStars;
+}
+
+function deductRocketStars(profile, amount) {
+  let remaining = amount;
+  // Ставка списывается с наиболее старых доступных призов, что делает движение
+  // баланса предсказуемым и не затрагивает уже оформленные на вывод звёзды.
+  for (const item of profile.starPrizeItems || []) {
+    if (item.withdrawalStatus === 'withdrawn' || remaining <= 0) continue;
+    const available = Math.max(0, Number(item.remainingAmount) || 0);
+    const spent = Math.min(available, remaining);
+    item.remainingAmount = available - spent;
+    remaining -= spent;
+  }
+  if (remaining > 0) throw new Error('Недостаточно призовых звёзд для ставки');
+  syncRocketStars(profile);
+}
+
+function addRocketPrize(profile, amount) {
+  profile.prizeStars = (Number(profile.prizeStars) || 0) + amount;
+  profile.starPrizeItems ||= [];
+  profile.starPrizeItems.push({
+    id: createPayoutId('STAR'), amount, remainingAmount: amount,
+    label: `⭐ ${amount} звёзд из Ракеты`, receivedAt: Date.now(), withdrawalStatus: 'available'
+  });
+  syncRocketStars(profile);
+}
+
 function rocketMultiplier(round, now = Date.now()) {
   // Единственная формула игры. Клиент использует её только для плавной
   // отрисовки, а сервер применяет при взрыве и выплате.
@@ -531,8 +589,8 @@ app.post('/api/rocket/start', async (req, res) => {
         const userResult = await client.sql`SELECT profile FROM users WHERE id = ${userId} FOR UPDATE`;
         profile = userResult.rows[0]?.profile;
         if (!profile) throw new Error('Профиль не найден');
-        if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
-        profile.caseStars -= bet; profile.stars = profile.caseStars;
+        if (availableRocketStars(profile) < bet) throw new Error('Недостаточно призовых звёзд для ставки');
+        deductRocketStars(profile, bet);
         await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
         await client.sql`INSERT INTO rocket_rounds (user_id, bet, crash_multiplier, started_at) VALUES (${userId}, ${bet}, ${round.crashMultiplier}, ${round.startedAt})`;
         await client.sql`COMMIT`;
@@ -541,8 +599,8 @@ app.post('/api/rocket/start', async (req, res) => {
     } else {
       profile = await getProfile(tgUser);
       if (await getRocketRound(userId)) throw new Error('Ракета уже запущена');
-      if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
-      profile.caseStars -= bet; profile.stars = profile.caseStars;
+      if (availableRocketStars(profile) < bet) throw new Error('Недостаточно призовых звёзд для ставки');
+      deductRocketStars(profile, bet);
       rocketRounds.set(userId, round); await saveUser(profile);
     }
     // `now` и multiplier позволяют клиенту синхронизировать живой счётчик с сервером,
@@ -551,7 +609,7 @@ app.post('/api/rocket/start', async (req, res) => {
     res.json({ profile, ...rocketLiveState(round, now), maxMultiplier: ROCKET_MAX_MULTIPLIER });
   } catch (error) {
     if (error.code === '23505' || error.message === 'Ракета уже запущена') return res.status(400).json({ error: 'Ракета уже запущена' });
-    if (error.message === 'Недостаточно звёзд для ставки') return res.status(400).json({ error: error.message });
+      if (error.message === 'Недостаточно призовых звёзд для ставки') return res.status(400).json({ error: error.message });
     console.error('Не удалось запустить ракету:', error); res.status(503).json({ error: 'Не удалось запустить ракету' });
   }
 });
@@ -595,7 +653,7 @@ app.post('/api/rocket/cashout', async (req, res) => {
         profile = userResult.rows[0]?.profile;
         if (!profile) throw new Error('Профиль не найден');
         const payout = Math.floor(round.bet * multiplier);
-        profile.caseStars = (Number(profile.caseStars) || 0) + payout; profile.stars = profile.caseStars;
+        addRocketPrize(profile, payout);
         await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
         await client.sql`COMMIT`; profiles[userId] = profile;
         return res.json({ profile, multiplier: Number(multiplier.toFixed(2)), payout });
@@ -607,7 +665,8 @@ app.post('/api/rocket/cashout', async (req, res) => {
     await deleteRocketRound(userId);
     if (multiplier >= round.crashMultiplier) return res.status(400).json({ error: `Ракета взорвалась на ${round.crashMultiplier.toFixed(2)}x` });
     const payout = Math.floor(round.bet * multiplier);
-    profile = await getProfile(tgUser); profile.caseStars = (Number(profile.caseStars) || 0) + payout; profile.stars = profile.caseStars;
+    profile = await getProfile(tgUser);
+    addRocketPrize(profile, payout);
     await saveUser(profile); return res.json({ profile, multiplier: Number(multiplier.toFixed(2)), payout });
   } catch (error) {
     if (error.message === 'Нет активной ракеты') return res.status(400).json({ error: error.message });
@@ -681,8 +740,10 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
     profile.prizeStars += amount;
     profile.starPrizeItems ||= [];
     profile.starPrizeItems.push({
-      id: createPayoutId('STAR'), amount, label: reward.label, receivedAt: Date.now()
+      id: createPayoutId('STAR'), amount, remainingAmount: amount,
+      label: reward.label, receivedAt: Date.now(), withdrawalStatus: 'available'
     });
+    syncRocketStars(profile);
   } else {
     profile.gifts ||= {};
     profile.giftItems ||= [];
@@ -788,6 +849,7 @@ if (botToken && !isVercel) {
       if (item.withdrawalStatus === 'withdrawn') return ctx.answerCbQuery('Уже отмечен как выведенный');
       item.withdrawalStatus = 'withdrawn';
       item.withdrawnAt = Date.now();
+      if (type === 'stars') syncRocketStars(profile);
       await saveUser(profile);
       await ctx.answerCbQuery('Приз отмечен как выведенный');
       // Повторно открываем карточку, чтобы сразу показать новый статус.

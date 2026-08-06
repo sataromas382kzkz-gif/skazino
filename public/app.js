@@ -45,7 +45,9 @@ function render(user, data) {
   $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
   $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
-  if ($('profilePrizeStars')) $('profilePrizeStars').textContent=data.prizeStars ?? 0;
+  const rocketStars = data.rocketStars ?? data.prizeStars ?? 0;
+  if ($('rocketStars')) $('rocketStars').textContent=rocketStars;
+  if ($('profilePrizeStars')) $('profilePrizeStars').textContent=rocketStars;
   if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
   startDailyTimer();
 }
@@ -92,6 +94,7 @@ let rocketFrame = 0;
 let rocketStatusTimer = 0;
 let rocketStatusPending = false;
 let rocketLastMultiplierText = '';
+let rocketFlightSoundTimer = 0;
 
 function readServerTime(value) {
   const timestamp = typeof value === 'number' ? value : Date.parse(value);
@@ -122,8 +125,10 @@ function updateRocketButton() {
 function stopRocketAnimation() {
   cancelAnimationFrame(rocketFrame);
   clearInterval(rocketStatusTimer);
+  clearInterval(rocketFlightSoundTimer);
   rocketFrame = null;
   rocketStatusTimer = null;
+  rocketFlightSoundTimer = null;
 }
 function finishRocketCrash(message) {
   rocketActive = false;
@@ -177,6 +182,9 @@ function startRocketAnimation() {
   checkRocketStatus();
   // Сервер остаётся источником истины: клиент лишь рисует текущий коэффициент.
   rocketStatusTimer = setInterval(checkRocketStatus, 900);
+  rocketFlightSoundTimer = setInterval(() => {
+    if (rocketActive && !document.hidden) playRocketFlightSound();
+  }, 4200);
 }
 $('rocketBet').addEventListener('input', updateRocketButton);
 $('rocketButton').onclick = async () => {
@@ -198,7 +206,8 @@ $('rocketButton').onclick = async () => {
       startRocketAnimation();
       // Визуальный старт также происходит без ожидания ответа API.
       $('rocketSky').classList.add('flying');
-      $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
+      playRocketLaunchSound();
+      $('rocketStatus').textContent = 'Ракета набирает высоту. Заберите выигрыш до взрыва.';
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
       if (data.crashed) {
         return finishRocketCrash(`Ракета взорвалась на ${Number(data.multiplier).toFixed(2)}x`);
@@ -216,7 +225,7 @@ $('rocketButton').onclick = async () => {
       // Полёт однократный: после конца траектории звезда остаётся в верхней точке.
       star.style.setProperty('--flight-delay', `-${Math.min(36000, Math.max(0, currentRocketServerTime() - rocketStartedAt))}ms`);
       $('rocketSky').classList.add('flying');
-      $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
+      $('rocketStatus').textContent = 'Ракета набирает высоту. Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
       startRocketAnimation();
     } else {
@@ -293,6 +302,17 @@ function playTone(frequency, duration, volume = 0.05, delay = 0) {
 function playCaseOpenSound() { playTone(240, .16, .111); playTone(380, .18, .098, .13); }
 function playReelSound() { playTone(720, .055, .052); }
 function playWinSound() { playTone(520, .14, .117); playTone(660, .16, .117, .12); playTone(880, .25, .13, .25); }
+function playRocketLaunchSound() {
+  // Короткий стартовый импульс и нарастающий свист двигателя.
+  playTone(110, .16, .09);
+  playTone(175, .24, .075, .07);
+  playTone(310, .18, .055, .19);
+}
+function playRocketFlightSound() {
+  // Ненавязчивый сигнал высоты: проигрывается редко, а не в каждом кадре.
+  playTone(420, .09, .026);
+  playTone(630, .11, .022, .08);
+}
 
 // Ненавязчивая фоновая мелодия: создаётся браузером, без загрузки аудиофайлов.
 let menuMusicTimer;
