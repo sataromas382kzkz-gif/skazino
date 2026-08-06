@@ -88,7 +88,8 @@ let rocketActive = false;
 let rocketStartedAt = 0;
 let rocketAnimation;
 function rocketMultiplier() {
-  return Math.min(20, 1 + (Date.now() - rocketStartedAt) / 1000 * .95);
+  // Должно совпадать с сервером: +0.20x за секунду.
+  return Math.min(20, 1 + (Date.now() - rocketStartedAt) / 1000 * .20);
 }
 function updateRocketButton() {
   const bet = Math.max(20, Number($('rocketBet').value) || 20);
@@ -111,7 +112,10 @@ function animateRocket() {
   if (!rocketActive) return;
   const multiplier = rocketMultiplier();
   $('rocketMultiplier').textContent = `${multiplier.toFixed(2)}x`;
-  $('rocketStar').style.transform = `translate(${Math.min(240, (multiplier - 1) / 19 * 240)}px, ${-Math.min(75, (multiplier - 1) / 19 * 75)}px) rotate(${(multiplier - 1) * 16}deg)`;
+  // Звезда летит с прежней скоростью и стартует в момент запуска раунда;
+  // её траектория не привязана к намеренно более медленному коэффициенту.
+  const flightProgress = Math.min(1, Math.max(0, Date.now() - rocketStartedAt) / 20_000);
+  $('rocketStar').style.transform = `translate(${flightProgress * 240}px, ${-flightProgress * 75}px) rotate(${flightProgress * 304}deg)`;
   if (Date.now() - rocketStatusCheck > 450) {
     rocketStatusCheck = Date.now();
     request('/api/rocket/status').then(status => {
@@ -136,6 +140,9 @@ $('rocketButton').onclick = async () => {
       rocketStartedAt = data.startedAt;
       rocketStatusCheck = 0;
       $('rocketBet').disabled = true;
+      // Сразу переносим звезду в стартовую точку и запускаем кадр анимации.
+      // Так она не ждёт следующего рендера и не «выезжает» с задержкой.
+      $('rocketStar').style.transform = 'translate(0, 0) rotate(0deg)';
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);

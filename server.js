@@ -430,7 +430,8 @@ const cases = {
 };
 
 function rocketMultiplier(round, now = Date.now()) {
-  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + Math.max(0, now - Number(round.startedAt)) / 1000 * 0.95);
+  // Коэффициент растёт на 0.20x в секунду, независимо от визуальной скорости звезды.
+  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + Math.max(0, now - Number(round.startedAt)) / 1000 * 0.20);
 }
 
 async function getRocketRound(userId) {
