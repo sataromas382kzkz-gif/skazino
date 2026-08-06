@@ -14,11 +14,18 @@ import { promoCodes } from './promo-codes.js';
 const ADMIN_TELEGRAM_ID = '5310549412';
 const adminStates = new Map();
 const localCustomPromoCodes = new Map();
+// Активные раунды «Ракеты» живут на сервере: клиент не может сам назначить
+// себе коэффициент или запросить выплату после взрыва.
+const rocketRounds = new Map();
+const ROCKET_MIN_BET = 20;
+const ROCKET_MAX_MULTIPLIER = 20;
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const botToken = process.env.BOT_TOKEN;
-const appUrl = process.env.APP_URL;
+// В .env часто остаётся пробел при копировании токена — Telegram воспринимает
+// его как неверный. Убираем только пробелы по краям, сам токен не логируем.
+const botToken = process.env.BOT_TOKEN?.trim();
+const appUrl = process.env.APP_URL?.trim();
 // VERCEL обычно доступна в Runtime, но определяем serverless-среду и по
 // служебным переменным: иначе функция ошибочно пытается писать в /var/task/data.
 const isVercel = Boolean(
@@ -148,6 +155,14 @@ async function initDatabase() {
       amount INTEGER NOT NULL CHECK (amount > 0),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_by TEXT NOT NULL
+    )`;
+    // Раунд хранится отдельно от профиля: Vercel может направить следующий
+    // запрос пользователя в другой экземпляр функции, где нет памяти процесса.
+    await db.sql`CREATE TABLE IF NOT EXISTS rocket_rounds (
+      user_id TEXT PRIMARY KEY,
+      bet INTEGER NOT NULL CHECK (bet >= 20),
+      crash_multiplier NUMERIC(5, 2) NOT NULL CHECK (crash_multiplier >= 1.10 AND crash_multiplier <= 20.00),
+      started_at BIGINT NOT NULL
     )`;
     databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
@@ -286,8 +301,14 @@ async function getProfile(tgUser) {
     if (!gift.id) { gift.id = createPayoutId('GIFT'); changed = true; }
   }
   if (!Array.isArray(profile.starPrizeItems)) { profile.starPrizeItems = []; changed = true; }
+  // Статус нужен и пользователю, и администратору: новый приз доступен к выводу,
+  // после выдачи администратор отмечает его как выведенный.
+  for (const gift of profile.giftItems) {
+    if (!gift.withdrawalStatus) { gift.withdrawalStatus = 'available'; changed = true; }
+  }
   for (const starPrize of profile.starPrizeItems) {
     if (!starPrize.id) { starPrize.id = createPayoutId('STAR'); changed = true; }
+    if (!starPrize.withdrawalStatus) { starPrize.withdrawalStatus = 'available'; changed = true; }
   }
   if (!Object.hasOwn(profile, 'registeredAt')) { profile.registeredAt = Date.now(); changed = true; }
   if (!Object.hasOwn(profile, 'caseStars')) { profile.caseStars = profile.stars ?? 100; changed = true; }
@@ -408,6 +429,27 @@ const cases = {
   }
 };
 
+function rocketMultiplier(round, now = Date.now()) {
+  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + Math.max(0, now - Number(round.startedAt)) / 1000 * 0.95);
+}
+
+async function getRocketRound(userId) {
+  if (databaseMode === 'postgres') {
+    const result = await db.sql`SELECT bet, crash_multiplier, started_at FROM rocket_rounds WHERE user_id = ${String(userId)}`;
+    const row = result.rows[0];
+    return row && { bet: Number(row.bet), crashMultiplier: Number(row.crash_multiplier), startedAt: Number(row.started_at) };
+  }
+  return rocketRounds.get(String(userId)) || null;
+}
+
+async function deleteRocketRound(userId) {
+  if (databaseMode === 'postgres') {
+    await db.sql`DELETE FROM rocket_rounds WHERE user_id = ${String(userId)}`;
+    return;
+  }
+  rocketRounds.delete(String(userId));
+}
+
 function drawReward(rewards) {
   const totalChance = rewards.reduce((total, reward) => total + Number(reward.chance), 0);
   if (totalChance <= 0) throw new Error('У кейса не настроены шансы призов');
@@ -450,6 +492,102 @@ app.post('/api/daily', async (req, res) => {
 
 app.get('/api/cases', (req, res) => {
   res.json(Object.entries(cases).map(([id, item]) => ({ id, ...item })));
+});
+
+app.post('/api/rocket/start', async (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  const bet = Number(req.body?.bet);
+  if (!Number.isInteger(bet) || bet < ROCKET_MIN_BET) return res.status(400).json({ error: `Минимальная ставка — ${ROCKET_MIN_BET} ⭐` });
+  try {
+    await getProfile(tgUser); // создаёт и мигрирует старые профили до транзакции
+    const userId = String(tgUser.id);
+    const round = { bet, crashMultiplier: Number((1.1 + Math.random() * (ROCKET_MAX_MULTIPLIER - 1.1)).toFixed(2)), startedAt: Date.now() };
+    let profile;
+    if (databaseMode === 'postgres') {
+      const client = await db.connect();
+      try {
+        await client.sql`BEGIN`;
+        const userResult = await client.sql`SELECT profile FROM users WHERE id = ${userId} FOR UPDATE`;
+        profile = userResult.rows[0]?.profile;
+        if (!profile) throw new Error('Профиль не найден');
+        if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
+        profile.caseStars -= bet; profile.stars = profile.caseStars;
+        await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
+        await client.sql`INSERT INTO rocket_rounds (user_id, bet, crash_multiplier, started_at) VALUES (${userId}, ${bet}, ${round.crashMultiplier}, ${round.startedAt})`;
+        await client.sql`COMMIT`;
+      } catch (error) { await client.sql`ROLLBACK`; throw error; } finally { client.release(); }
+      profiles[userId] = profile;
+    } else {
+      profile = await getProfile(tgUser);
+      if (await getRocketRound(userId)) throw new Error('Ракета уже запущена');
+      if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
+      profile.caseStars -= bet; profile.stars = profile.caseStars;
+      rocketRounds.set(userId, round); await saveUser(profile);
+    }
+    res.json({ profile, startedAt: round.startedAt, maxMultiplier: ROCKET_MAX_MULTIPLIER });
+  } catch (error) {
+    if (error.code === '23505' || error.message === 'Ракета уже запущена') return res.status(400).json({ error: 'Ракета уже запущена' });
+    if (error.message === 'Недостаточно звёзд для ставки') return res.status(400).json({ error: error.message });
+    console.error('Не удалось запустить ракету:', error); res.status(503).json({ error: 'Не удалось запустить ракету' });
+  }
+});
+
+app.get('/api/rocket/status', async (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  try {
+    await ensureDatabaseReady();
+    const round = await getRocketRound(tgUser.id);
+    if (!round) return res.status(404).json({ error: 'Нет активной ракеты' });
+    if (rocketMultiplier(round) >= round.crashMultiplier) {
+      await deleteRocketRound(tgUser.id);
+      return res.json({ crashed: true, multiplier: round.crashMultiplier });
+    }
+    res.json({ crashed: false, startedAt: round.startedAt, bet: round.bet });
+  } catch (error) { console.error('Не удалось проверить ракету:', error); res.status(503).json({ error: 'Не удалось проверить ракету' }); }
+});
+
+app.post('/api/rocket/cashout', async (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  const userId = String(tgUser.id);
+  try {
+    await getProfile(tgUser);
+    let profile, round;
+    if (databaseMode === 'postgres') {
+      const client = await db.connect();
+      try {
+        await client.sql`BEGIN`;
+        // DELETE ... RETURNING делает повторный запрос cashout безопасным: выплату получит только первый.
+        const roundResult = await client.sql`DELETE FROM rocket_rounds WHERE user_id = ${userId} RETURNING bet, crash_multiplier, started_at`;
+        const row = roundResult.rows[0];
+        if (!row) throw new Error('Нет активной ракеты');
+        round = { bet: Number(row.bet), crashMultiplier: Number(row.crash_multiplier), startedAt: Number(row.started_at) };
+        const multiplier = rocketMultiplier(round);
+        if (multiplier >= round.crashMultiplier) { await client.sql`COMMIT`; return res.status(400).json({ error: `Ракета взорвалась на ${round.crashMultiplier.toFixed(2)}x` }); }
+        const userResult = await client.sql`SELECT profile FROM users WHERE id = ${userId} FOR UPDATE`;
+        profile = userResult.rows[0]?.profile;
+        if (!profile) throw new Error('Профиль не найден');
+        const payout = Math.floor(round.bet * multiplier);
+        profile.caseStars = (Number(profile.caseStars) || 0) + payout; profile.stars = profile.caseStars;
+        await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
+        await client.sql`COMMIT`; profiles[userId] = profile;
+        return res.json({ profile, multiplier: Number(multiplier.toFixed(2)), payout });
+      } catch (error) { await client.sql`ROLLBACK`; throw error; } finally { client.release(); }
+    }
+    round = await getRocketRound(userId);
+    if (!round) return res.status(400).json({ error: 'Нет активной ракеты' });
+    const multiplier = rocketMultiplier(round);
+    await deleteRocketRound(userId);
+    if (multiplier >= round.crashMultiplier) return res.status(400).json({ error: `Ракета взорвалась на ${round.crashMultiplier.toFixed(2)}x` });
+    const payout = Math.floor(round.bet * multiplier);
+    profile = await getProfile(tgUser); profile.caseStars = (Number(profile.caseStars) || 0) + payout; profile.stars = profile.caseStars;
+    await saveUser(profile); return res.json({ profile, multiplier: Number(multiplier.toFixed(2)), payout });
+  } catch (error) {
+    if (error.message === 'Нет активной ракеты') return res.status(400).json({ error: error.message });
+    console.error('Не удалось выплатить ракету:', error); res.status(503).json({ error: 'Не удалось зачислить выигрыш' });
+  }
 });
 
 app.post('/api/profile/topup', async (req, res) => {
@@ -544,6 +682,25 @@ if (botToken && !isVercel) {
     [Markup.button.callback('🔎 Проверить ID приза', 'admin_check')],
     [Markup.button.callback('➕ Создать промокод', 'admin_promo')]
   ]);
+  const userDisplayName = profile => profile.name || `Пользователь ${profile.id}`;
+  const adminUserKeyboard = users => Markup.inlineKeyboard([
+    ...users.map(profile => [Markup.button.callback(
+      `👤 ${userDisplayName(profile)} · ${profile.id}`.slice(0, 64),
+      `admin_user:${profile.id}`
+    )]),
+    [Markup.button.callback('← Назад', 'admin_back')]
+  ]);
+  const adminUserDetailsKeyboard = (profile, payoutItems) => Markup.inlineKeyboard([
+    ...payoutItems.filter(({ item }) => item.withdrawalStatus !== 'withdrawn').map(({ item, type }) => [
+      Markup.button.callback(
+        `✅ Отметить выведенным: ${item.id}`.slice(0, 64),
+        // callback_data Telegram ограничивает 64 байтами, поэтому используем
+        // короткие префиксы и типы вместо длинных слов.
+        `w:${profile.id}:${type === 'gift' ? 'g' : 's'}:${item.id}`
+      )
+    ]),
+    [Markup.button.callback('← К списку пользователей', 'admin_users')]
+  ]);
 
   bot.command('admin', async ctx => {
     if (!isAdmin(ctx)) return;
@@ -555,8 +712,73 @@ if (botToken && !isVercel) {
     try {
       const users = await getAllProfiles();
       await ctx.answerCbQuery();
-      await ctx.reply(`👥 Всего пользователей: ${users.length}`);
-    } catch (error) { await ctx.answerCbQuery('Ошибка базы'); }
+      if (!users.length) return ctx.reply('👥 Пользователей пока нет.');
+      // Telegram принимает не более 100 кнопок в одном сообщении.
+      const visibleUsers = users.slice(0, 99);
+      const suffix = users.length > visibleUsers.length ? `\nПоказаны первые ${visibleUsers.length} из ${users.length}.` : '';
+      await ctx.reply(`👥 Пользователи: ${users.length}${suffix}`, adminUserKeyboard(visibleUsers));
+    } catch (error) {
+      console.error('Не удалось получить список пользователей:', error);
+      await ctx.answerCbQuery('Ошибка базы');
+    }
+  });
+  bot.action('admin_back', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    await ctx.answerCbQuery();
+    return ctx.editMessageText('Панель администратора', adminKeyboard());
+  });
+  bot.action(/^admin_user:(.+)$/, async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    try {
+      const userId = ctx.match[1];
+      const profile = (await getAllProfiles()).find(item => String(item.id) === userId);
+      if (!profile) return ctx.answerCbQuery('Пользователь не найден');
+      const payoutItems = [
+        ...(profile.giftItems || []).map(item => ({ item, type: 'gift' })),
+        ...(profile.starPrizeItems || []).map(item => ({ item, type: 'stars' }))
+      ];
+      const available = payoutItems.filter(({ item }) => item.withdrawalStatus !== 'withdrawn');
+      const withdrawn = payoutItems.filter(({ item }) => item.withdrawalStatus === 'withdrawn');
+      const describe = ({ item, type }) => {
+        const label = item.label || (type === 'stars' ? `⭐ ${item.amount || 0} звёзд` : `Подарок: ${item.type}`);
+        return `• ${label}\n  ID: ${item.id}\n  ${item.withdrawalStatus === 'withdrawn' ? '✅ Выведен' : '🟡 Доступен для вывода'}`;
+      };
+      const text = `👤 ${userDisplayName(profile)}\nTelegram ID: ${profile.id}\n\n🟡 Доступно для вывода: ${available.length}\n${available.map(describe).join('\n') || '—'}\n\n✅ Уже выведено: ${withdrawn.length}\n${withdrawn.map(describe).join('\n') || '—'}`;
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(text.slice(0, 4000), adminUserDetailsKeyboard(profile, payoutItems));
+    } catch (error) {
+      console.error('Не удалось открыть профиль пользователя:', error);
+      await ctx.answerCbQuery('Ошибка базы');
+    }
+  });
+  bot.action(/^w:([^:]+):([gs]):(.+)$/, async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    try {
+      const [, userId, shortType, payoutId] = ctx.match;
+      const type = shortType === 'g' ? 'gift' : 'stars';
+      const profile = (await getAllProfiles()).find(item => String(item.id) === userId);
+      const items = type === 'gift' ? profile?.giftItems : profile?.starPrizeItems;
+      const item = items?.find(candidate => candidate.id === payoutId);
+      if (!profile || !item) return ctx.answerCbQuery('Приз не найден');
+      if (item.withdrawalStatus === 'withdrawn') return ctx.answerCbQuery('Уже отмечен как выведенный');
+      item.withdrawalStatus = 'withdrawn';
+      item.withdrawnAt = Date.now();
+      await saveUser(profile);
+      await ctx.answerCbQuery('Приз отмечен как выведенный');
+      // Повторно открываем карточку, чтобы сразу показать новый статус.
+      const payoutItems = [
+        ...(profile.giftItems || []).map(entry => ({ item: entry, type: 'gift' })),
+        ...(profile.starPrizeItems || []).map(entry => ({ item: entry, type: 'stars' }))
+      ];
+      const available = payoutItems.filter(({ item }) => item.withdrawalStatus !== 'withdrawn');
+      const withdrawn = payoutItems.filter(({ item }) => item.withdrawalStatus === 'withdrawn');
+      const describe = ({ item, type: itemType }) => `• ${item.label || (itemType === 'stars' ? `⭐ ${item.amount || 0} звёзд` : `Подарок: ${item.type}`)}\n  ID: ${item.id}\n  ${item.withdrawalStatus === 'withdrawn' ? '✅ Выведен' : '🟡 Доступен для вывода'}`;
+      const text = `👤 ${userDisplayName(profile)}\nTelegram ID: ${profile.id}\n\n🟡 Доступно для вывода: ${available.length}\n${available.map(describe).join('\n') || '—'}\n\n✅ Уже выведено: ${withdrawn.length}\n${withdrawn.map(describe).join('\n') || '—'}`;
+      await ctx.editMessageText(text.slice(0, 4000), adminUserDetailsKeyboard(profile, payoutItems));
+    } catch (error) {
+      console.error('Не удалось отметить вывод приза:', error);
+      await ctx.answerCbQuery('Не удалось сохранить статус');
+    }
   });
   bot.action('admin_check', async ctx => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
@@ -570,11 +792,14 @@ if (botToken && !isVercel) {
     await ctx.answerCbQuery();
     await ctx.reply('Пришлите промокод и количество звёзд через пробел. Пример: SUMMER50 50');
   });
-  bot.on('text', async ctx => {
-    if (!isAdmin(ctx)) return;
+  // Не перехватываем обычные команды: раньше этот обработчик стоял выше
+  // bot.start и останавливал цепочку middleware для любого не-администратора.
+  // Из-за этого Telegram принимал /start, но приветствие не отправлялось.
+  bot.on('text', async (ctx, next) => {
+    if (!isAdmin(ctx)) return next();
     const userId = String(ctx.from.id);
     const state = adminStates.get(userId);
-    if (!state || ctx.message.text.startsWith('/')) return;
+    if (!state || ctx.message.text.startsWith('/')) return next();
     const text = ctx.message.text.trim();
     try {
       if (state === 'check') {
@@ -637,9 +862,12 @@ if (botToken && !isVercel) {
       return ctx.reply('База данных временно недоступна');
     }
   });
-  bot.launch()
+  bot.launch({ dropPendingUpdates: true })
     .then(() => console.log('Telegram bot started (long polling)'))
-    .catch(error => console.error('Telegram bot не запущен:', error));
+    .catch(error => console.error(
+      'Telegram bot не запущен. Проверьте BOT_TOKEN и остановите другие экземпляры бота:',
+      error.message
+    ));
   process.once('SIGINT', () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
 } else if (!botToken) {

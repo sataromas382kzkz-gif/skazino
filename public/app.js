@@ -84,6 +84,85 @@ $('withdrawStarsButton').onclick=()=>{
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 // Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
 $('topupLink').onclick=()=>$('topupLink').select();
+let rocketActive = false;
+let rocketStartedAt = 0;
+let rocketAnimation;
+function rocketMultiplier() {
+  return Math.min(20, 1 + (Date.now() - rocketStartedAt) / 1000 * .95);
+}
+function updateRocketButton() {
+  const bet = Math.max(20, Number($('rocketBet').value) || 20);
+  $('rocketButton').textContent = rocketActive ? 'Забрать выигрыш' : `Запустить за ${bet} ⭐`;
+}
+let rocketStatusCheck = 0;
+function finishRocketCrash(message) {
+  rocketActive = false;
+  cancelAnimationFrame(rocketAnimation);
+  $('rocketBet').disabled = false;
+  $('rocketSky').classList.remove('flying');
+  $('rocketSky').classList.add('crashed');
+  $('rocketStatus').textContent = message;
+  $('rocketMultiplier').textContent = '💥';
+  setTimeout(() => $('rocketSky').classList.remove('crashed'), 700);
+  playTone(90, .35, .14);
+  updateRocketButton();
+}
+function animateRocket() {
+  if (!rocketActive) return;
+  const multiplier = rocketMultiplier();
+  $('rocketMultiplier').textContent = `${multiplier.toFixed(2)}x`;
+  $('rocketStar').style.transform = `translate(${Math.min(240, (multiplier - 1) / 19 * 240)}px, ${-Math.min(75, (multiplier - 1) / 19 * 75)}px) rotate(${(multiplier - 1) * 16}deg)`;
+  if (Date.now() - rocketStatusCheck > 450) {
+    rocketStatusCheck = Date.now();
+    request('/api/rocket/status').then(status => {
+      if (status.crashed && rocketActive) finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
+    }).catch(() => {});
+  }
+  rocketAnimation = requestAnimationFrame(animateRocket);
+}
+$('rocketBet').addEventListener('input', updateRocketButton);
+$('rocketButton').onclick = async () => {
+  const button = $('rocketButton');
+  if (!profile) return;
+  const cashingOut = rocketActive;
+  button.disabled = true;
+  try {
+    if (!rocketActive) {
+      const bet = Math.max(20, Math.floor(Number($('rocketBet').value) || 20));
+      $('rocketBet').value = bet;
+      const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
+      render({ first_name: profile.name }, data.profile);
+      rocketActive = true;
+      rocketStartedAt = data.startedAt;
+      rocketStatusCheck = 0;
+      $('rocketBet').disabled = true;
+      $('rocketSky').classList.add('flying');
+      $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
+      playTone(420, .12, .11); playTone(620, .18, .1, .1);
+      animateRocket();
+    } else {
+      const data = await request('/api/rocket/cashout', { method: 'POST' });
+      rocketActive = false;
+      cancelAnimationFrame(rocketAnimation);
+      $('rocketBet').disabled = false;
+      $('rocketSky').classList.remove('flying');
+      $('rocketStatus').textContent = `Вы забрали ${data.payout} ⭐ на ${data.multiplier.toFixed(2)}x!`;
+      render({ first_name: profile.name }, data.profile);
+      playWinSound();
+    }
+  } catch (e) {
+    // Ошибка сети не означает взрыв: раунд остаётся на сервере, и игрок может
+    // повторить вывод после восстановления соединения.
+    if (cashingOut) {
+      toast(e.message);
+      if (rocketActive) { button.disabled = false; updateRocketButton(); }
+    } else toast(e.message);
+  } finally {
+    button.disabled = false;
+    updateRocketButton();
+  }
+};
+updateRocketButton();
 function rewardEmoji(reward) {
   if (reward?.type === 'bear') return '🧸';
   if (reward?.type === 'heart') return '💝';
@@ -121,9 +200,10 @@ function playTone(frequency, duration, volume = 0.05, delay = 0) {
     oscillator.start(start); oscillator.stop(start + duration + 0.02);
   } catch (_) { /* Звук необязателен: приложение работает и без Web Audio. */ }
 }
-function playCaseOpenSound() { playTone(240, .16, .085); playTone(380, .18, .075, .13); }
-function playReelSound() { playTone(720, .055, .04); }
-function playWinSound() { playTone(520, .14, .09); playTone(660, .16, .09, .12); playTone(880, .25, .1, .25); }
+// Громкость эффектов и фоновой мелодии увеличена примерно на 30%.
+function playCaseOpenSound() { playTone(240, .16, .111); playTone(380, .18, .098, .13); }
+function playReelSound() { playTone(720, .055, .052); }
+function playWinSound() { playTone(520, .14, .117); playTone(660, .16, .117, .12); playTone(880, .25, .13, .25); }
 
 // Ненавязчивая фоновая мелодия: создаётся браузером, без загрузки аудиофайлов.
 let menuMusicTimer;
@@ -131,7 +211,7 @@ let menuMusicStep = 0;
 function playMenuMusicNote() {
   if (document.hidden || $('caseModal').classList.contains('visible')) return;
   const notes = [262, 330, 392, 330, 294, 349, 440, 349];
-  playTone(notes[menuMusicStep++ % notes.length], .34, .012);
+  playTone(notes[menuMusicStep++ % notes.length], .34, .016);
 }
 function startMenuMusic() {
   if (menuMusicTimer) return;
@@ -225,5 +305,21 @@ async function openCase(item, button) {
   }
 }
 $('closeModal').onclick=()=> { $('caseModal').classList.remove('visible'); startMenuMusic(); };
-request('/api/me').then(x=>render(x.user,x.profile)).catch(e=>toast(e.message));
+async function restoreRocketRound() {
+  try {
+    const status = await request('/api/rocket/status');
+    if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
+    rocketActive = true;
+    rocketStartedAt = Number(status.startedAt);
+    $('rocketBet').value = status.bet;
+    $('rocketBet').disabled = true;
+    $('rocketSky').classList.add('flying');
+    $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
+    updateRocketButton(); animateRocket();
+  } catch (error) {
+    // 404 означает, что раунда нет; остальные ошибки не мешают загрузке приложения.
+    if (!String(error.message).includes('(404)')) console.warn('Не удалось восстановить ракету:', error);
+  }
+}
+request('/api/me').then(x=>{ render(x.user,x.profile); return restoreRocketRound(); }).catch(e=>toast(e.message));
 request('/api/cases').then(cases=>cases.forEach(showCase)).catch(e=>toast(e.message));
