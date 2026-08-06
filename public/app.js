@@ -87,6 +87,8 @@ $('topupLink').onclick=()=>$('topupLink').select();
 let rocketActive = false;
 let rocketStartedAt = 0;
 let rocketAnimation;
+let rocketTimer;
+let rocketLastFrame = 0;
 function rocketMultiplier() {
   // Синхронно с сервером: коэффициент начинает отображаться сразу с 1.00x
   // и ускоряет рост по мере длительности раунда.
@@ -98,9 +100,15 @@ function updateRocketButton() {
   $('rocketButton').textContent = rocketActive ? 'Забрать выигрыш' : `Запустить за ${bet} ⭐`;
 }
 let rocketStatusCheck = 0;
+function stopRocketAnimation() {
+  cancelAnimationFrame(rocketAnimation);
+  clearInterval(rocketTimer);
+  rocketAnimation = null;
+  rocketTimer = null;
+}
 function finishRocketCrash(message) {
   rocketActive = false;
-  cancelAnimationFrame(rocketAnimation);
+  stopRocketAnimation();
   $('rocketBet').disabled = false;
   $('rocketSky').classList.remove('flying');
   $('rocketSky').classList.add('crashed');
@@ -110,15 +118,17 @@ function finishRocketCrash(message) {
   playTone(90, .35, .14);
   updateRocketButton();
 }
-function animateRocket() {
+function renderRocketFrame() {
   if (!rocketActive) return;
+  const elapsed = Math.max(0, Date.now() - rocketStartedAt);
   const multiplier = rocketMultiplier();
-  $('rocketMultiplier').textContent = `${multiplier.toFixed(2)}x`;
-  // Звезда летит с прежней скоростью и стартует в момент запуска раунда;
-  // её траектория не привязана к намеренно более медленному коэффициенту.
-  const flightProgress = Math.min(1, Math.max(0, Date.now() - rocketStartedAt) / 20_000);
-  const x = flightProgress * 240;
-  const y = -flightProgress * 75 - Math.sin(flightProgress * Math.PI) * 13;
+  const multiplierElement = $('rocketMultiplier');
+  multiplierElement.textContent = `${multiplier.toFixed(2)}x`;
+  // Постоянная скорость полёта: звезда не зависит от ускорения коэффициента.
+  // Циклическая траектория не даёт ей «застыть» после первого пролёта.
+  const flightProgress = (elapsed % 20_000) / 20_000;
+  const x = flightProgress * 245;
+  const y = -flightProgress * 76 - Math.sin(flightProgress * Math.PI) * 15;
   const angle = -18 - flightProgress * 12 + Math.sin(flightProgress * Math.PI * 3) * 4;
   $('rocketStar').style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${angle}deg) scale(${1 + flightProgress * .16})`;
   if (Date.now() - rocketStatusCheck > 450) {
@@ -127,7 +137,23 @@ function animateRocket() {
       if (status.crashed && rocketActive) finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
     }).catch(() => {});
   }
+}
+function animateRocket(timestamp = performance.now()) {
+  if (!rocketActive) return;
+  // requestAnimationFrame даёт плавность, а setInterval ниже служит fallback
+  // для WebView Telegram, которые иногда приостанавливают RAF.
+  if (timestamp - rocketLastFrame >= 16) {
+    rocketLastFrame = timestamp;
+    renderRocketFrame();
+  }
   rocketAnimation = requestAnimationFrame(animateRocket);
+}
+function startRocketAnimation() {
+  stopRocketAnimation();
+  rocketLastFrame = 0;
+  renderRocketFrame(); // первый кадр — сразу при принятии ставки
+  rocketAnimation = requestAnimationFrame(animateRocket);
+  rocketTimer = setInterval(renderRocketFrame, 80);
 }
 $('rocketBet').addEventListener('input', updateRocketButton);
 $('rocketButton').onclick = async () => {
@@ -151,11 +177,11 @@ $('rocketButton').onclick = async () => {
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
-      animateRocket();
+      startRocketAnimation();
     } else {
       const data = await request('/api/rocket/cashout', { method: 'POST' });
       rocketActive = false;
-      cancelAnimationFrame(rocketAnimation);
+      stopRocketAnimation();
       $('rocketBet').disabled = false;
       $('rocketSky').classList.remove('flying');
       $('rocketStatus').textContent = `Вы забрали ${data.payout} ⭐ на ${data.multiplier.toFixed(2)}x!`;
@@ -327,7 +353,7 @@ async function restoreRocketRound() {
     $('rocketBet').disabled = true;
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
-    updateRocketButton(); animateRocket();
+    updateRocketButton(); startRocketAnimation();
   } catch (error) {
     // 404 означает, что раунда нет; остальные ошибки не мешают загрузке приложения.
     if (!String(error.message).includes('(404)')) console.warn('Не удалось восстановить ракету:', error);
