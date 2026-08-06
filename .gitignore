@@ -1,4 +1,4 @@
 node_modules/
 .env
+*.log
 data/users.json
-data/users.json.tmp

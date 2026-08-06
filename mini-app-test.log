@@ -1,3 +1,8 @@
+
+> telegram-mini-app-starter@1.0.0 start
+> node server.js
+
 BOT_TOKEN не задан: запущен только Mini App в demo-режиме
 Mini App: http://localhost:3000
 Локальная база пользователей загружена: 1
+^C

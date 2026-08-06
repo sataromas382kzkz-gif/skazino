@@ -48,11 +48,13 @@ const databaseConfigured = Boolean(postgresUrl);
 // при инициализации модуля, а их нормализация выполняется ниже импорта.
 const db = databaseConfigured ? createPool({ connectionString: postgresUrl }) : null;
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
+const localPromoCodesPath = path.join(__dirname, 'data', 'custom-promo-codes.json');
 let databaseReady;
 let databaseMode = databaseConfigured ? 'postgres' : 'local';
 let databaseInitError = null;
 let profiles = {};
 let localWriteQueue = Promise.resolve();
+let localPromoWriteQueue = Promise.resolve();
 
 async function ensureLocalDatabase() {
   await fs.mkdir(path.dirname(localDatabasePath), { recursive: true });
@@ -77,6 +79,19 @@ async function readLocalProfiles() {
   }
 }
 
+async function readLocalCustomPromoCodes() {
+  try {
+    const contents = await fs.readFile(localPromoCodesPath, 'utf8');
+    const storedCodes = contents.trim() ? JSON.parse(contents) : {};
+    for (const [code, amount] of Object.entries(storedCodes)) {
+      if (Number.isInteger(amount) && amount > 0) localCustomPromoCodes.set(code, amount);
+    }
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    console.error(`Не удалось загрузить локальные промокоды: ${error.message}`);
+  }
+}
+
 function writeLocalProfiles() {
   // Последовательная запись исключает конфликт временных файлов при параллельных запросах.
   localWriteQueue = localWriteQueue.catch(() => {}).then(async () => {
@@ -86,6 +101,17 @@ function writeLocalProfiles() {
     await fs.rename(temporaryPath, localDatabasePath);
   });
   return localWriteQueue;
+}
+
+function writeLocalCustomPromoCodes() {
+  localPromoWriteQueue = localPromoWriteQueue.catch(() => {}).then(async () => {
+    await ensureLocalDatabase();
+    const storedCodes = Object.fromEntries(localCustomPromoCodes);
+    const temporaryPath = `${localPromoCodesPath}.${process.pid}.tmp`;
+    await fs.writeFile(temporaryPath, JSON.stringify(storedCodes, null, 2), 'utf8');
+    await fs.rename(temporaryPath, localPromoCodesPath);
+  });
+  return localPromoWriteQueue;
 }
 
 async function initDatabase() {
@@ -100,6 +126,7 @@ async function initDatabase() {
     }
     await ensureLocalDatabase();
     profiles = await readLocalProfiles();
+    await readLocalCustomPromoCodes();
     databaseMode = 'local';
     console.log(`Локальная база пользователей загружена: ${Object.keys(profiles).length}`);
     return;
@@ -133,6 +160,7 @@ async function initDatabase() {
     }
     await ensureLocalDatabase();
     profiles = await readLocalProfiles();
+    await readLocalCustomPromoCodes();
     databaseMode = 'local';
     console.error(`PostgreSQL недоступен, включена локальная база: ${error.message}`);
   }
@@ -181,6 +209,7 @@ async function createCustomPromoCode(code, amount, createdBy) {
   }
   if (localCustomPromoCodes.has(code)) throw new Error('Такой промокод уже существует');
   localCustomPromoCodes.set(code, amount);
+  await writeLocalCustomPromoCodes();
 }
 
 async function claimPromoCode(code, userId) {
@@ -575,11 +604,28 @@ if (botToken && !isVercel) {
     }
   });
 
-  bot.start(ctx => {
+  // Ошибки Telegram API (конфликт двух запущенных экземпляров, неверный токен
+  // или webhook) не должны теряться без сообщения в терминале.
+  bot.catch((error, ctx) => {
+    console.error(`Ошибка обработки Telegram update ${ctx.update.update_id}:`, error);
+  });
+
+  bot.start(async ctx => {
+    try {
+      // Регистрируем пользователя в том же хранилище, что и Mini App.
+      // Поэтому счётчик в админ-панели включает и пользователей, начавших с Telegram.
+      await getProfile(ctx.from);
+    } catch (error) {
+      console.error('Не удалось зарегистрировать пользователя из Telegram:', error);
+      return ctx.reply('Сервис временно недоступен. Попробуйте ещё раз чуть позже.');
+    }
     const button = appUrl
       ? Markup.button.webApp('🚀 Открыть приложение', appUrl)
       : Markup.button.callback('Сначала настройте APP_URL', 'setup');
-    return ctx.reply(`Привет, ${ctx.from.first_name}!\\n\\nЭто стартовый Telegram Mini App.`, Markup.inlineKeyboard([[button]]));
+    return ctx.reply(
+      `👋 Добро пожаловать, ${ctx.from.first_name}!\n\n🎁 Здесь можно открывать кейсы, получать звёзды и выигрывать Telegram-подарки.\n\nНажмите кнопку ниже, чтобы открыть приложение и начать.`,
+      Markup.inlineKeyboard([[button]])
+    );
   });
   bot.command('app', ctx => ctx.reply('Открыть Mini App:', Markup.inlineKeyboard([[Markup.button.webApp('🚀 Открыть', appUrl || 'https://example.com')]])));
   bot.command('profile', async ctx => {
@@ -591,8 +637,9 @@ if (botToken && !isVercel) {
       return ctx.reply('База данных временно недоступна');
     }
   });
-  bot.launch();
-  console.log('Telegram bot started');
+  bot.launch()
+    .then(() => console.log('Telegram bot started (long polling)'))
+    .catch(error => console.error('Telegram bot не запущен:', error));
   process.once('SIGINT', () => bot.stop('SIGINT'));
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
 } else if (!botToken) {
@@ -602,5 +649,17 @@ if (botToken && !isVercel) {
 }
 
 // Vercel использует экспортированный handler, а локально запускаем обычный HTTP-сервер.
-if (!isVercel) app.listen(port, () => console.log(`Mini App: http://localhost:${port}`));
+if (!isVercel) {
+  const server = app.listen(port, () => console.log(`Mini App: http://localhost:${port}`));
+  // Не завершаем процесс необработанным исключением: обычно это означает,
+  // что предыдущий экземпляр приложения ещё занимает порт.
+  server.on('error', error => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Порт ${port} уже занят. Остановите предыдущий экземпляр (Ctrl+C) или запустите приложение на другом порту: PORT=3001 npm start`);
+    } else {
+      console.error('Не удалось запустить HTTP-сервер:', error);
+    }
+    process.exitCode = 1;
+  });
+}
 export default app;
