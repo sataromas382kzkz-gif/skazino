@@ -430,8 +430,17 @@ const cases = {
 };
 
 function rocketMultiplier(round, now = Date.now()) {
-  // Коэффициент растёт на 0.20x в секунду, независимо от визуальной скорости звезды.
-  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + Math.max(0, now - Number(round.startedAt)) / 1000 * 0.20);
+  // Старт — ровно 1.00x. С течением времени рост ускоряется: ждать дольше
+  // выгоднее, но и риск взрыва при этом значительно выше.
+  const seconds = Math.max(0, now - Number(round.startedAt)) / 1000;
+  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + 0.12 * seconds + 0.015 * seconds ** 2);
+}
+
+function drawRocketCrashMultiplier() {
+  // Степенное распределение сильно сдвинуто к ранним взрывам: большинство
+  // раундов заканчивается на малых x, а значения близкие к x20 очень редки.
+  const earlyCrashBias = Math.random() ** 3.5;
+  return Number((1.1 + earlyCrashBias * (ROCKET_MAX_MULTIPLIER - 1.1)).toFixed(2));
 }
 
 async function getRocketRound(userId) {
@@ -503,7 +512,7 @@ app.post('/api/rocket/start', async (req, res) => {
   try {
     await getProfile(tgUser); // создаёт и мигрирует старые профили до транзакции
     const userId = String(tgUser.id);
-    const round = { bet, crashMultiplier: Number((1.1 + Math.random() * (ROCKET_MAX_MULTIPLIER - 1.1)).toFixed(2)), startedAt: Date.now() };
+    const round = { bet, crashMultiplier: drawRocketCrashMultiplier(), startedAt: Date.now() };
     let profile;
     if (databaseMode === 'postgres') {
       const client = await db.connect();

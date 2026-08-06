@@ -88,8 +88,10 @@ let rocketActive = false;
 let rocketStartedAt = 0;
 let rocketAnimation;
 function rocketMultiplier() {
-  // Должно совпадать с сервером: +0.20x за секунду.
-  return Math.min(20, 1 + (Date.now() - rocketStartedAt) / 1000 * .20);
+  // Синхронно с сервером: коэффициент начинает отображаться сразу с 1.00x
+  // и ускоряет рост по мере длительности раунда.
+  const seconds = Math.max(0, Date.now() - rocketStartedAt) / 1000;
+  return Math.min(20, 1 + .12 * seconds + .015 * seconds ** 2);
 }
 function updateRocketButton() {
   const bet = Math.max(20, Number($('rocketBet').value) || 20);
@@ -115,7 +117,10 @@ function animateRocket() {
   // Звезда летит с прежней скоростью и стартует в момент запуска раунда;
   // её траектория не привязана к намеренно более медленному коэффициенту.
   const flightProgress = Math.min(1, Math.max(0, Date.now() - rocketStartedAt) / 20_000);
-  $('rocketStar').style.transform = `translate(${flightProgress * 240}px, ${-flightProgress * 75}px) rotate(${flightProgress * 304}deg)`;
+  const x = flightProgress * 240;
+  const y = -flightProgress * 75 - Math.sin(flightProgress * Math.PI) * 13;
+  const angle = -18 - flightProgress * 12 + Math.sin(flightProgress * Math.PI * 3) * 4;
+  $('rocketStar').style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${angle}deg) scale(${1 + flightProgress * .16})`;
   if (Date.now() - rocketStatusCheck > 450) {
     rocketStatusCheck = Date.now();
     request('/api/rocket/status').then(status => {
@@ -142,7 +147,7 @@ $('rocketButton').onclick = async () => {
       $('rocketBet').disabled = true;
       // Сразу переносим звезду в стартовую точку и запускаем кадр анимации.
       // Так она не ждёт следующего рендера и не «выезжает» с задержкой.
-      $('rocketStar').style.transform = 'translate(0, 0) rotate(0deg)';
+      $('rocketStar').style.transform = 'translate3d(0, 0, 0) rotate(-18deg) scale(1)';
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
