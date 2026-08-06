@@ -89,6 +89,12 @@ let rocketStartedAt = 0;
 let rocketAnimation;
 let rocketTimer;
 let rocketLastFrame = 0;
+function rocketStartTimestamp(value) {
+  // API может вернуть Unix-время или ISO-дату. Number(ISO-строки) даёт NaN,
+  // из-за чего коэффициент оставался статичным на 1.00x.
+  const timestamp = typeof value === 'number' ? value : Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : Date.now();
+}
 function rocketMultiplier() {
   // Синхронно с сервером: коэффициент начинает отображаться сразу с 1.00x
   // и ускоряет рост по мере длительности раунда.
@@ -176,7 +182,7 @@ $('rocketButton').onclick = async () => {
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
       render({ first_name: profile.name }, data.profile);
       rocketActive = true;
-      rocketStartedAt = data.startedAt;
+      rocketStartedAt = rocketStartTimestamp(data.startedAt);
       rocketStatusCheck = 0;
       $('rocketBet').disabled = true;
       // Перезапускаем CSS-полёт после получения ставки. Отрицательная задержка
@@ -185,7 +191,9 @@ $('rocketButton').onclick = async () => {
       star.style.removeProperty('--flight-delay');
       $('rocketSky').classList.remove('flying');
       void star.offsetWidth;
-      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 9000}ms`);
+      // CSS-цикл полёта длится 16 секунд: позиция остаётся синхронизированной
+      // и после небольшой задержки серверного ответа.
+      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 16000}ms`);
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
@@ -360,14 +368,14 @@ async function restoreRocketRound() {
     const status = await request('/api/rocket/status');
     if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
     rocketActive = true;
-    rocketStartedAt = Number(status.startedAt);
+    rocketStartedAt = rocketStartTimestamp(status.startedAt);
     $('rocketBet').value = status.bet;
     $('rocketBet').disabled = true;
     const star = $('rocketStar');
     star.style.removeProperty('--flight-delay');
     $('rocketSky').classList.remove('flying');
     void star.offsetWidth;
-    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 9000}ms`);
+    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 16000}ms`);
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();
