@@ -86,9 +86,9 @@ $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile
 $('topupLink').onclick=()=>$('topupLink').select();
 let rocketActive = false;
 let rocketStartedAt = 0;
-let rocketAnimation;
 let rocketTimer;
-let rocketLastFrame = 0;
+let rocketStatusTimer;
+let rocketLastMultiplierText = '';
 function rocketStartTimestamp(value) {
   // API может вернуть Unix-время или ISO-дату. Number(ISO-строки) даёт NaN,
   // из-за чего коэффициент оставался статичным на 1.00x.
@@ -105,13 +105,11 @@ function updateRocketButton() {
   const bet = Math.max(20, Number($('rocketBet').value) || 20);
   $('rocketButton').textContent = rocketActive ? 'Забрать выигрыш' : `Запустить за ${bet} ⭐`;
 }
-let rocketStatusCheck = 0;
-let rocketLastMultiplierText = '';
 function stopRocketAnimation() {
-  cancelAnimationFrame(rocketAnimation);
   clearInterval(rocketTimer);
-  rocketAnimation = null;
+  clearInterval(rocketStatusTimer);
   rocketTimer = null;
+  rocketStatusTimer = null;
 }
 function finishRocketCrash(message) {
   rocketActive = false;
@@ -128,7 +126,6 @@ function finishRocketCrash(message) {
 }
 function renderRocketFrame() {
   if (!rocketActive) return;
-  const elapsed = Math.max(0, Date.now() - rocketStartedAt);
   const multiplier = rocketMultiplier();
   const multiplierElement = $('rocketMultiplier');
   const multiplierText = `${multiplier.toFixed(2)}x`;
@@ -140,34 +137,23 @@ function renderRocketFrame() {
     void multiplierElement.offsetWidth;
     multiplierElement.classList.add('multiplier-tick');
   }
-  // Полёт выполняется CSS-анимацией, а не JavaScript-transform. Это принципиально:
-  // в некоторых Telegram WebView перерисовка inline transform замирает, тогда как
-  // compositor-анимация CSS продолжает работать плавно.
-  if (Date.now() - rocketStatusCheck > 900) {
-    rocketStatusCheck = Date.now();
-    request('/api/rocket/status').then(status => {
-      if (status.crashed && rocketActive) finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
-    }).catch(() => {});
-  }
 }
-function animateRocket(timestamp = performance.now()) {
+function checkRocketStatus() {
   if (!rocketActive) return;
-  // requestAnimationFrame даёт плавность, а setInterval ниже служит fallback
-  // для WebView Telegram, которые иногда приостанавливают RAF.
-  if (timestamp - rocketLastFrame >= 16) {
-    rocketLastFrame = timestamp;
-    renderRocketFrame();
-  }
-  rocketAnimation = requestAnimationFrame(animateRocket);
+  request('/api/rocket/status').then(status => {
+    if (status.crashed && rocketActive) finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
+  }).catch(() => {
+    // Временная ошибка сети не останавливает локальный счётчик.
+  });
 }
 function startRocketAnimation() {
   stopRocketAnimation();
   rocketLastMultiplierText = '';
-  rocketLastFrame = 0;
-  renderRocketFrame(); // коэффициент показывается сразу
-  // Интервал обновляет число даже при ограничении requestAnimationFrame в WebView.
+  renderRocketFrame(); // коэффициент появляется в тот же момент
+  // Единственный таймер счётчика исключает гонку RAF и нескольких интервалов.
   rocketTimer = setInterval(renderRocketFrame, 50);
-  rocketAnimation = requestAnimationFrame(animateRocket);
+  checkRocketStatus();
+  rocketStatusTimer = setInterval(checkRocketStatus, 900);
 }
 $('rocketBet').addEventListener('input', updateRocketButton);
 $('rocketButton').onclick = async () => {
@@ -183,7 +169,6 @@ $('rocketButton').onclick = async () => {
       // После ответа он синхронизируется с серверным временем раунда.
       rocketActive = true;
       rocketStartedAt = Date.now();
-      rocketStatusCheck = 0;
       rocketLastMultiplierText = '';
       startRocketAnimation();
       // Визуальный старт также происходит без ожидания ответа API.
@@ -192,7 +177,6 @@ $('rocketButton').onclick = async () => {
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
       render({ first_name: profile.name }, data.profile);
       rocketStartedAt = rocketStartTimestamp(data.startedAt);
-      rocketStatusCheck = 0;
       $('rocketBet').disabled = true;
       // Перезапускаем CSS-полёт после получения ставки. Отрицательная задержка
       // сохраняет верную позицию, если ответ сервера пришёл не мгновенно.
@@ -200,9 +184,8 @@ $('rocketButton').onclick = async () => {
       star.style.removeProperty('--flight-delay');
       $('rocketSky').classList.remove('flying');
       void star.offsetWidth;
-      // CSS-цикл полёта длится 16 секунд: позиция остаётся синхронизированной
-      // и после небольшой задержки серверного ответа.
-      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 16000}ms`);
+      // Длинная траектория движется непрерывно и не возвращает звезду резко в начало.
+      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 60000}ms`);
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
@@ -393,7 +376,7 @@ async function restoreRocketRound() {
     star.style.removeProperty('--flight-delay');
     $('rocketSky').classList.remove('flying');
     void star.offsetWidth;
-    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 16000}ms`);
+    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 60000}ms`);
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();
