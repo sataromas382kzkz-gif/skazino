@@ -179,9 +179,18 @@ $('rocketButton').onclick = async () => {
     if (!rocketActive) {
       const bet = Math.max(20, Math.floor(Number($('rocketBet').value) || 20));
       $('rocketBet').value = bet;
+      // Запускаем локальный отсчёт прямо по нажатию, не дожидаясь сети.
+      // После ответа он синхронизируется с серверным временем раунда.
+      rocketActive = true;
+      rocketStartedAt = Date.now();
+      rocketStatusCheck = 0;
+      rocketLastMultiplierText = '';
+      startRocketAnimation();
+      // Визуальный старт также происходит без ожидания ответа API.
+      $('rocketSky').classList.add('flying');
+      $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
       render({ first_name: profile.name }, data.profile);
-      rocketActive = true;
       rocketStartedAt = rocketStartTimestamp(data.startedAt);
       rocketStatusCheck = 0;
       $('rocketBet').disabled = true;
@@ -214,7 +223,16 @@ $('rocketButton').onclick = async () => {
     if (cashingOut) {
       toast(e.message);
       if (rocketActive) { button.disabled = false; updateRocketButton(); }
-    } else toast(e.message);
+    } else {
+      // Локальный отсчёт уже был показан, поэтому при отказе сервера откатываем UI.
+      rocketActive = false;
+      stopRocketAnimation();
+      $('rocketSky').classList.remove('flying');
+      $('rocketStar').style.removeProperty('--flight-delay');
+      $('rocketMultiplier').textContent = '1.00x';
+      $('rocketStatus').textContent = 'Сделай ставку и забери выигрыш до взрыва.';
+      toast(e.message);
+    }
   } finally {
     button.disabled = false;
     updateRocketButton();
