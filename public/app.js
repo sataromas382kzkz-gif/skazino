@@ -86,20 +86,34 @@ $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile
 $('topupLink').onclick=()=>$('topupLink').select();
 let rocketActive = false;
 let rocketStartedAt = 0;
-let rocketFrame;
-let rocketStatusTimer;
+let rocketServerNow = 0;
+let rocketClockAtSync = 0;
+let rocketFrame = 0;
+let rocketStatusTimer = 0;
+let rocketStatusPending = false;
 let rocketLastMultiplierText = '';
-function rocketStartTimestamp(value) {
-  // API может вернуть Unix-время или ISO-дату. Number(ISO-строки) даёт NaN,
-  // из-за чего коэффициент оставался статичным на 1.00x.
+
+function readServerTime(value) {
   const timestamp = typeof value === 'number' ? value : Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : Date.now();
 }
-function rocketMultiplier() {
-  // Синхронно с сервером: коэффициент начинает отображаться сразу с 1.00x
-  // и ускоряет рост по мере длительности раунда.
-  const seconds = Math.max(0, Date.now() - rocketStartedAt) / 1000;
+function rocketMultiplierForElapsed(seconds) {
   return Math.min(20, 1 + .12 * seconds + .015 * seconds ** 2);
+}
+function syncRocketClock(round) {
+  // Точка отсчёта переносится на monotonic performance.now(), который не
+  // меняется при ручной смене часов на телефоне. Серверное `now` остаётся
+  // источником истины для расчёта следующего кадра.
+  rocketStartedAt = readServerTime(round.startedAt);
+  rocketServerNow = readServerTime(round.now);
+  rocketClockAtSync = performance.now();
+}
+function currentRocketServerTime() {
+  return rocketServerNow + Math.max(0, performance.now() - rocketClockAtSync);
+}
+function rocketMultiplier() {
+  const seconds = Math.max(0, currentRocketServerTime() - rocketStartedAt) / 1000;
+  return rocketMultiplierForElapsed(seconds);
 }
 function updateRocketButton() {
   const bet = Math.max(20, Number($('rocketBet').value) || 20);
@@ -140,13 +154,21 @@ function renderRocketFrame() {
   }
   rocketFrame = requestAnimationFrame(renderRocketFrame);
 }
-function checkRocketStatus() {
-  if (!rocketActive) return;
-  request('/api/rocket/status').then(status => {
-    if (status.crashed && rocketActive) finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
-  }).catch(() => {
-    // Временная ошибка сети не останавливает локальный счётчик.
-  });
+async function checkRocketStatus() {
+  if (!rocketActive || rocketStatusPending) return;
+  rocketStatusPending = true;
+  try {
+    const status = await request('/api/rocket/status');
+    if (!rocketActive) return;
+    if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${Number(status.multiplier).toFixed(2)}x`);
+    // Сервер — источник истины, а requestAnimationFrame отрисовывает все
+    // промежуточные сотые между синхронизациями без рывков.
+    syncRocketClock(status);
+  } catch (_) {
+    // При кратковременном сбое сети не останавливаем уже запущенный раунд.
+  } finally {
+    rocketStatusPending = false;
+  }
 }
 function startRocketAnimation() {
   stopRocketAnimation();
@@ -169,15 +191,20 @@ $('rocketButton').onclick = async () => {
       // Запускаем локальный отсчёт прямо по нажатию, не дожидаясь сети.
       // После ответа он синхронизируется с серверным временем раунда.
       rocketActive = true;
-      rocketStartedAt = Date.now();
+      // Мгновенная локальная отрисовка до ответа сети; после start она будет
+      // заменена точными серверными временем и коэффициентом.
+      syncRocketClock({ startedAt: Date.now(), now: Date.now() });
       rocketLastMultiplierText = '';
       startRocketAnimation();
       // Визуальный старт также происходит без ожидания ответа API.
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
+      if (data.crashed) {
+        return finishRocketCrash(`Ракета взорвалась на ${Number(data.multiplier).toFixed(2)}x`);
+      }
       render({ first_name: profile.name }, data.profile);
-      rocketStartedAt = rocketStartTimestamp(data.startedAt);
+      syncRocketClock(data);
       $('rocketBet').disabled = true;
       // Перезапускаем CSS-полёт после получения ставки. Отрицательная задержка
       // сохраняет верную позицию, если ответ сервера пришёл не мгновенно.
@@ -186,7 +213,7 @@ $('rocketButton').onclick = async () => {
       $('rocketSky').classList.remove('flying');
       void star.offsetWidth;
       // Длинная траектория движется непрерывно и не возвращает звезду резко в начало.
-      star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 60000}ms`);
+      star.style.setProperty('--flight-delay', `-${Math.max(0, currentRocketServerTime() - rocketStartedAt) % 60000}ms`);
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
@@ -218,6 +245,7 @@ $('rocketButton').onclick = async () => {
       toast(e.message);
     }
   } finally {
+    // После мгновенного взрыва finishRocketCrash уже восстановил состояние UI.
     button.disabled = false;
     updateRocketButton();
   }
@@ -370,14 +398,14 @@ async function restoreRocketRound() {
     const status = await request('/api/rocket/status');
     if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
     rocketActive = true;
-    rocketStartedAt = rocketStartTimestamp(status.startedAt);
+    syncRocketClock(status);
     $('rocketBet').value = status.bet;
     $('rocketBet').disabled = true;
     const star = $('rocketStar');
     star.style.removeProperty('--flight-delay');
     $('rocketSky').classList.remove('flying');
     void star.offsetWidth;
-    star.style.setProperty('--flight-delay', `-${Math.max(0, Date.now() - rocketStartedAt) % 60000}ms`);
+    star.style.setProperty('--flight-delay', `-${Math.max(0, currentRocketServerTime() - rocketStartedAt) % 60000}ms`);
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();

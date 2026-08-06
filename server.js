@@ -430,10 +430,20 @@ const cases = {
 };
 
 function rocketMultiplier(round, now = Date.now()) {
-  // Старт — ровно 1.00x. С течением времени рост ускоряется: ждать дольше
-  // выгоднее, но и риск взрыва при этом значительно выше.
+  // Единственная формула игры. Клиент использует её только для плавной
+  // отрисовки, а сервер применяет при взрыве и выплате.
   const seconds = Math.max(0, now - Number(round.startedAt)) / 1000;
   return Math.min(ROCKET_MAX_MULTIPLIER, 1 + 0.12 * seconds + 0.015 * seconds ** 2);
+}
+
+function rocketLiveState(round, now = Date.now()) {
+  return {
+    crashed: rocketMultiplier(round, now) >= round.crashMultiplier,
+    startedAt: Number(round.startedAt),
+    bet: Number(round.bet),
+    multiplier: Number(rocketMultiplier(round, now).toFixed(4)),
+    now
+  };
 }
 
 function drawRocketCrashMultiplier() {
@@ -535,7 +545,10 @@ app.post('/api/rocket/start', async (req, res) => {
       profile.caseStars -= bet; profile.stars = profile.caseStars;
       rocketRounds.set(userId, round); await saveUser(profile);
     }
-    res.json({ profile, startedAt: round.startedAt, maxMultiplier: ROCKET_MAX_MULTIPLIER });
+    // `now` и multiplier позволяют клиенту синхронизировать живой счётчик с сервером,
+    // не полагаясь на часы устройства пользователя.
+    const now = Date.now();
+    res.json({ profile, ...rocketLiveState(round, now), maxMultiplier: ROCKET_MAX_MULTIPLIER });
   } catch (error) {
     if (error.code === '23505' || error.message === 'Ракета уже запущена') return res.status(400).json({ error: 'Ракета уже запущена' });
     if (error.message === 'Недостаточно звёзд для ставки') return res.status(400).json({ error: error.message });
@@ -550,11 +563,13 @@ app.get('/api/rocket/status', async (req, res) => {
     await ensureDatabaseReady();
     const round = await getRocketRound(tgUser.id);
     if (!round) return res.status(404).json({ error: 'Нет активной ракеты' });
-    if (rocketMultiplier(round) >= round.crashMultiplier) {
+    const now = Date.now();
+    const state = rocketLiveState(round, now);
+    if (state.crashed) {
       await deleteRocketRound(tgUser.id);
-      return res.json({ crashed: true, multiplier: round.crashMultiplier });
+      return res.json({ crashed: true, multiplier: round.crashMultiplier, now });
     }
-    res.json({ crashed: false, startedAt: round.startedAt, bet: round.bet });
+    res.json(state);
   } catch (error) { console.error('Не удалось проверить ракету:', error); res.status(503).json({ error: 'Не удалось проверить ракету' }); }
 });
 
