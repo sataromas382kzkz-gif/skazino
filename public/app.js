@@ -86,7 +86,7 @@ $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile
 $('topupLink').onclick=()=>$('topupLink').select();
 let rocketActive = false;
 let rocketStartedAt = 0;
-let rocketTimer;
+let rocketFrame;
 let rocketStatusTimer;
 let rocketLastMultiplierText = '';
 function rocketStartTimestamp(value) {
@@ -106,9 +106,9 @@ function updateRocketButton() {
   $('rocketButton').textContent = rocketActive ? 'Забрать выигрыш' : `Запустить за ${bet} ⭐`;
 }
 function stopRocketAnimation() {
-  clearInterval(rocketTimer);
+  cancelAnimationFrame(rocketFrame);
   clearInterval(rocketStatusTimer);
-  rocketTimer = null;
+  rocketFrame = null;
   rocketStatusTimer = null;
 }
 function finishRocketCrash(message) {
@@ -120,7 +120,8 @@ function finishRocketCrash(message) {
   $('rocketSky').classList.add('crashed');
   $('rocketStatus').textContent = message;
   $('rocketMultiplier').textContent = '💥';
-  setTimeout(() => $('rocketSky').classList.remove('crashed'), 700);
+  $('rocketMultiplier').classList.remove('multiplier-tick');
+  setTimeout(() => $('rocketSky').classList.remove('crashed'), 900);
   playTone(90, .35, .14);
   updateRocketButton();
 }
@@ -132,11 +133,12 @@ function renderRocketFrame() {
   if (multiplierText !== rocketLastMultiplierText) {
     rocketLastMultiplierText = multiplierText;
     multiplierElement.textContent = multiplierText;
-    // Короткий импульс на каждом новом значении делает рост коэффициента видимым.
+    // Импульс запускается только при смене сотой, не на каждом кадре.
     multiplierElement.classList.remove('multiplier-tick');
     void multiplierElement.offsetWidth;
     multiplierElement.classList.add('multiplier-tick');
   }
+  rocketFrame = requestAnimationFrame(renderRocketFrame);
 }
 function checkRocketStatus() {
   if (!rocketActive) return;
@@ -149,10 +151,9 @@ function checkRocketStatus() {
 function startRocketAnimation() {
   stopRocketAnimation();
   rocketLastMultiplierText = '';
-  renderRocketFrame(); // коэффициент появляется в тот же момент
-  // Единственный таймер счётчика исключает гонку RAF и нескольких интервалов.
-  rocketTimer = setInterval(renderRocketFrame, 50);
+  renderRocketFrame(); // плавное обновление на каждом кадре, без дрожания таймеров
   checkRocketStatus();
+  // Сервер остаётся источником истины: клиент лишь рисует текущий коэффициент.
   rocketStatusTimer = setInterval(checkRocketStatus, 900);
 }
 $('rocketBet').addEventListener('input', updateRocketButton);
