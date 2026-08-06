@@ -213,7 +213,8 @@ $('rocketButton').onclick = async () => {
       $('rocketSky').classList.remove('flying');
       void star.offsetWidth;
       // Длинная траектория движется непрерывно и не возвращает звезду резко в начало.
-      star.style.setProperty('--flight-delay', `-${Math.max(0, currentRocketServerTime() - rocketStartedAt) % 60000}ms`);
+      // Полёт однократный: после конца траектории звезда остаётся в верхней точке.
+      star.style.setProperty('--flight-delay', `-${Math.min(36000, Math.max(0, currentRocketServerTime() - rocketStartedAt))}ms`);
       $('rocketSky').classList.add('flying');
       $('rocketStatus').textContent = 'Звезда летит! Заберите выигрыш до взрыва.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
@@ -405,7 +406,8 @@ async function restoreRocketRound() {
     star.style.removeProperty('--flight-delay');
     $('rocketSky').classList.remove('flying');
     void star.offsetWidth;
-    star.style.setProperty('--flight-delay', `-${Math.max(0, currentRocketServerTime() - rocketStartedAt) % 60000}ms`);
+    // Восстановленный раунд продолжается в соответствующей точке дуги.
+    star.style.setProperty('--flight-delay', `-${Math.min(36000, Math.max(0, currentRocketServerTime() - rocketStartedAt))}ms`);
     $('rocketSky').classList.add('flying');
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();
