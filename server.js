@@ -164,9 +164,15 @@ async function initDatabase() {
     await db.sql`CREATE TABLE IF NOT EXISTS rocket_rounds (
       user_id TEXT PRIMARY KEY,
       bet INTEGER NOT NULL CHECK (bet >= 20),
-      crash_multiplier NUMERIC(5, 2) NOT NULL CHECK (crash_multiplier >= 1.10 AND crash_multiplier <= 20.00),
+      crash_multiplier NUMERIC(5, 2) NOT NULL CHECK (crash_multiplier >= 1.01 AND crash_multiplier <= 20.00),
       started_at BIGINT NOT NULL
     )`;
+    // Старая версия таблицы могла быть создана с ограничением
+    // CHECK (crash_multiplier >= 1.10), из-за которого ранние взрывы 1.01–1.09x
+    // не сохранялись и запуск ракеты падал. CREATE TABLE IF NOT EXISTS не меняет
+    // существующую таблицу, поэтому сбрасываем устаревшее ограничение явно.
+    // PostgreSQL именует inline column CHECK как <table>_<column>_check.
+    await db.sql`ALTER TABLE rocket_rounds DROP CONSTRAINT IF EXISTS rocket_rounds_crash_multiplier_check`;
 
     databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
