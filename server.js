@@ -19,9 +19,9 @@ const localCustomPromoCodes = new Map();
 const rocketRounds = new Map();
 const ROCKET_MIN_BET = 20;
 const ROCKET_MAX_MULTIPLIER = 20;
-// Ниже 1.15x ракета не взрывается: это оставляет короткое окно для реакции.
-const ROCKET_MIN_CRASH_MULTIPLIER = 1.15;
-const ROCKET_COMMON_CRASH_MULTIPLIER = 1.5;
+// Ракета может взорваться почти сразу (от 1.01x), поэтому «гарантированного»
+// мгновенного кэшаута на ~1.1x больше нет: ранние взрывы — частый риск.
+const ROCKET_MIN_CRASH_MULTIPLIER = 1.01;
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -493,14 +493,28 @@ function rocketLiveState(round, now = Date.now()) {
 
 function drawRocketCrashMultiplier() {
   // Результат каждого раунда случаен и генерируется криптографически безопасно.
-  // В 82% случаев взрыв приходится на диапазон 1.15–1.50x; остальные 18%
-  // дают редкие высокие коэффициенты. Так большинство раундов остаётся коротким,
-  // но шанс на крупный выигрыш сохраняется.
+  // Распределение смещено к низким множителям: более трети раундов взрываются
+  // до 1.10x, что убирает «гарантированный» ранний кэшаут. Высокие кэфы
+  // встречаются редко и тем вероятнее, чем больше множитель.
   const roll = crypto.randomInt(0, 1_000_000) / 1_000_000;
-  const multiplier = roll < 0.82
-    ? ROCKET_MIN_CRASH_MULTIPLIER + (roll / 0.82) * (ROCKET_COMMON_CRASH_MULTIPLIER - ROCKET_MIN_CRASH_MULTIPLIER)
-    : ROCKET_COMMON_CRASH_MULTIPLIER + ((roll - 0.82) / 0.18) ** 2.4 * (ROCKET_MAX_MULTIPLIER - ROCKET_COMMON_CRASH_MULTIPLIER);
-  return Number(multiplier.toFixed(2));
+  let multiplier;
+  if (roll < 0.38) {
+    // Ранний взрыв: 1.01–1.10x (частый риск).
+    multiplier = ROCKET_MIN_CRASH_MULTIPLIER + (roll / 0.38) * 0.09;
+  } else if (roll < 0.72) {
+    // 1.10–1.70x.
+    multiplier = 1.10 + ((roll - 0.38) / 0.34) * 0.60;
+  } else if (roll < 0.89) {
+    // 1.70–3.00x.
+    multiplier = 1.70 + ((roll - 0.72) / 0.17) * 1.30;
+  } else if (roll < 0.97) {
+    // 3.00–7.00x.
+    multiplier = 3.00 + ((roll - 0.89) / 0.08) * 4.00;
+  } else {
+    // Редкие крупные кэфы: 7.00–20.00x.
+    multiplier = 7.00 + ((roll - 0.97) / 0.03) ** 2 * (ROCKET_MAX_MULTIPLIER - 7.00);
+  }
+  return Number(Math.min(ROCKET_MAX_MULTIPLIER, multiplier).toFixed(2));
 }
 
 async function getRocketRound(userId) {
