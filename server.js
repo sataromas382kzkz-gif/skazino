@@ -449,7 +449,8 @@ function rocketLiveState(round, now = Date.now()) {
 function drawRocketCrashMultiplier() {
   // Степенное распределение сильно сдвинуто к ранним взрывам: большинство
   // раундов заканчивается на малых x, а значения близкие к x20 очень редки.
-  const earlyCrashBias = Math.random() ** 3.5;
+  // Усиливаем смещение к раннему взрыву, чтобы высокие коэффициенты выпадали реже.
+  const earlyCrashBias = Math.random() ** 4.5;
   return Number((1.1 + earlyCrashBias * (ROCKET_MAX_MULTIPLIER - 1.1)).toFixed(2));
 }
 
@@ -534,6 +535,7 @@ app.post('/api/rocket/start', async (req, res) => {
         if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
         profile.caseStars -= bet; profile.stars = profile.caseStars;
         await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
+        // Не создаём второй раунд при двойном нажатии: конфликт обрабатывается ниже.
         await client.sql`INSERT INTO rocket_rounds (user_id, bet, crash_multiplier, started_at) VALUES (${userId}, ${bet}, ${round.crashMultiplier}, ${round.startedAt})`;
         await client.sql`COMMIT`;
       } catch (error) { await client.sql`ROLLBACK`; throw error; } finally { client.release(); }

@@ -169,7 +169,12 @@ async function checkRocketStatus() {
     // Сервер — источник истины, а requestAnimationFrame отрисовывает все
     // промежуточные сотые между синхронизациями без рывков.
     syncRocketClock(status);
-  } catch (_) {
+  } catch (error) {
+    // После взрыва сервер удаляет раунд. Если ответ о взрыве не дошёл,
+    // 404 означает именно завершённый раунд, а не повод продолжать анимацию.
+    if (rocketActive && String(error.message).includes('Нет активной ракеты')) {
+      finishRocketCrash('Ракета взорвалась. Ставка сгорела.');
+    }
     // При кратковременном сбое сети не останавливаем уже запущенный раунд.
   } finally {
     rocketStatusPending = false;
@@ -242,8 +247,12 @@ $('rocketButton').onclick = async () => {
     // Ошибка сети не означает взрыв: раунд остаётся на сервере, и игрок может
     // повторить вывод после восстановления соединения.
     if (cashingOut) {
-      toast(e.message);
-      if (rocketActive) { button.disabled = false; updateRocketButton(); }
+      if (String(e.message).includes('Нет активной ракеты') || String(e.message).includes('Ракета взорвалась')) {
+        finishRocketCrash('Ракета взорвалась. Ставка сгорела.');
+      } else {
+        toast(e.message);
+        if (rocketActive) { button.disabled = false; updateRocketButton(); }
+      }
     } else {
       // Локальный отсчёт уже был показан, поэтому при отказе сервера откатываем UI.
       rocketActive = false;
@@ -320,7 +329,8 @@ let menuMusicStep = 0;
 function playMenuMusicNote() {
   if (document.hidden || $('caseModal').classList.contains('visible')) return;
   const notes = [262, 330, 392, 330, 294, 349, 440, 349];
-  playTone(notes[menuMusicStep++ % notes.length], .34, .016);
+  // Фоновая мелодия заметнее, но всё ещё тише игровых эффектов.
+  playTone(notes[menuMusicStep++ % notes.length], .34, .03);
 }
 function startMenuMusic() {
   if (menuMusicTimer) return;
@@ -432,8 +442,8 @@ async function restoreRocketRound() {
     $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
     updateRocketButton(); startRocketAnimation();
   } catch (error) {
-    // 404 означает, что раунда нет; остальные ошибки не мешают загрузке приложения.
-    if (!String(error.message).includes('(404)')) console.warn('Не удалось восстановить ракету:', error);
+    // «Нет активной ракеты» — штатный ответ, а не проблема загрузки.
+    if (!String(error.message).includes('Нет активной ракеты')) console.warn('Не удалось восстановить ракету:', error);
   }
 }
 request('/api/me').then(x=>{ render(x.user,x.profile); return restoreRocketRound(); }).catch(e=>toast(e.message));
