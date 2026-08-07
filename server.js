@@ -19,6 +19,9 @@ const localCustomPromoCodes = new Map();
 const rocketRounds = new Map();
 const ROCKET_MIN_BET = 20;
 const ROCKET_MAX_MULTIPLIER = 20;
+// Ниже 1.15x ракета не взрывается: это оставляет короткое окно для реакции.
+const ROCKET_MIN_CRASH_MULTIPLIER = 1.15;
+const ROCKET_COMMON_CRASH_MULTIPLIER = 1.5;
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -164,6 +167,7 @@ async function initDatabase() {
       crash_multiplier NUMERIC(5, 2) NOT NULL CHECK (crash_multiplier >= 1.10 AND crash_multiplier <= 20.00),
       started_at BIGINT NOT NULL
     )`;
+
     databaseMode = 'postgres';
     console.log('Подключена постоянная база PostgreSQL');
   } catch (error) {
@@ -433,7 +437,9 @@ function rocketMultiplier(round, now = Date.now()) {
   // Единственная формула игры. Клиент использует её только для плавной
   // отрисовки, а сервер применяет при взрыве и выплате.
   const seconds = Math.max(0, now - Number(round.startedAt)) / 1000;
-  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + 0.12 * seconds + 0.015 * seconds ** 2);
+  // Быстрый, но читаемый рост: максимальный коэффициент достигается примерно
+  // за 20 секунд, поэтому серия ставок не создаёт затянутые раунды.
+  return Math.min(ROCKET_MAX_MULTIPLIER, 1 + 0.18 * seconds + 0.04 * seconds ** 2);
 }
 
 function rocketLiveState(round, now = Date.now()) {
@@ -447,10 +453,15 @@ function rocketLiveState(round, now = Date.now()) {
 }
 
 function drawRocketCrashMultiplier() {
-  // Степенное распределение сохраняет частые ранние взрывы, но даёт немного
-  // больше шансов на заметные коэффициенты, чем прежняя настройка 4.5.
-  const earlyCrashBias = Math.random() ** 3.7;
-  return Number((1.1 + earlyCrashBias * (ROCKET_MAX_MULTIPLIER - 1.1)).toFixed(2));
+  // Результат каждого раунда случаен и генерируется криптографически безопасно.
+  // В 82% случаев взрыв приходится на диапазон 1.15–1.50x; остальные 18%
+  // дают редкие высокие коэффициенты. Так большинство раундов остаётся коротким,
+  // но шанс на крупный выигрыш сохраняется.
+  const roll = crypto.randomInt(0, 1_000_000) / 1_000_000;
+  const multiplier = roll < 0.82
+    ? ROCKET_MIN_CRASH_MULTIPLIER + (roll / 0.82) * (ROCKET_COMMON_CRASH_MULTIPLIER - ROCKET_MIN_CRASH_MULTIPLIER)
+    : ROCKET_COMMON_CRASH_MULTIPLIER + ((roll - 0.82) / 0.18) ** 2.4 * (ROCKET_MAX_MULTIPLIER - ROCKET_COMMON_CRASH_MULTIPLIER);
+  return Number(multiplier.toFixed(2));
 }
 
 async function getRocketRound(userId) {
@@ -468,6 +479,16 @@ async function deleteRocketRound(userId) {
     return;
   }
   rocketRounds.delete(String(userId));
+}
+
+async function discardExpiredRocketRound(userId, now = Date.now()) {
+  const round = await getRocketRound(userId);
+  if (!round) return null;
+  if (rocketMultiplier(round, now) >= round.crashMultiplier) {
+    await deleteRocketRound(userId);
+    return null;
+  }
+  return round;
 }
 
 function drawReward(rewards) {
@@ -533,8 +554,20 @@ app.post('/api/rocket/start', async (req, res) => {
         if (!profile) throw new Error('Профиль не найден');
         // Проверяем раунд до списания. Раньше при двойном запросе ставка могла
         // списаться, а INSERT упасть по уникальному user_id.
-        const activeRound = await client.sql`SELECT user_id FROM rocket_rounds WHERE user_id = ${userId} FOR UPDATE`;
-        if (activeRound.rowCount) throw new Error('Ракета уже запущена');
+        const activeRound = await client.sql`SELECT bet, crash_multiplier, started_at FROM rocket_rounds WHERE user_id = ${userId} FOR UPDATE`;
+        if (activeRound.rowCount) {
+          const previousRound = {
+            bet: Number(activeRound.rows[0].bet),
+            crashMultiplier: Number(activeRound.rows[0].crash_multiplier),
+            startedAt: Number(activeRound.rows[0].started_at)
+          };
+          // Завершившийся в фоне раунд не должен блокировать следующую ставку.
+          if (rocketMultiplier(previousRound) >= previousRound.crashMultiplier) {
+            await client.sql`DELETE FROM rocket_rounds WHERE user_id = ${userId}`;
+          } else {
+            throw new Error('Ракета уже запущена');
+          }
+        }
         if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
         profile.caseStars -= bet; profile.stars = profile.caseStars;
         await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
@@ -544,7 +577,7 @@ app.post('/api/rocket/start', async (req, res) => {
       profiles[userId] = profile;
     } else {
       profile = await getProfile(tgUser);
-      if (await getRocketRound(userId)) throw new Error('Ракета уже запущена');
+      if (await discardExpiredRocketRound(userId)) throw new Error('Ракета уже запущена');
       if ((Number(profile.caseStars) || 0) < bet) throw new Error('Недостаточно звёзд для ставки');
       profile.caseStars -= bet; profile.stars = profile.caseStars;
       rocketRounds.set(userId, round); await saveUser(profile);

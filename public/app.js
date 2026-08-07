@@ -104,7 +104,9 @@ function readServerTime(value) {
   return Number.isFinite(timestamp) ? timestamp : Date.now();
 }
 function rocketMultiplierForElapsed(seconds) {
-  return Math.min(20, 1 + .12 * seconds + .015 * seconds ** 2);
+  // Та же формула, что и на сервере: клиент показывает только анимацию,
+  // окончательный результат всё равно проверяет API.
+  return Math.min(20, 1 + .18 * seconds + .04 * seconds ** 2);
 }
 function syncRocketClock(round) {
   // Точка отсчёта переносится на monotonic performance.now(), который не
@@ -208,28 +210,18 @@ $('rocketButton').onclick = async () => {
     if (!rocketActive) {
       const bet = Math.max(20, Math.floor(Number($('rocketBet').value) || 20));
       $('rocketBet').value = bet;
-      // Запускаем локальный отсчёт прямо по нажатию, не дожидаясь сети.
-      // После ответа он синхронизируется с серверным временем раунда.
+      // Раунд становится активным только после подтверждения сервера. Так
+      // двойной тап или медленная сеть не создают «локальную» бесконечную ракету.
+      $('rocketStatus').textContent = 'Подготавливаем новый независимый раунд…';
+      const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
       rocketRunId += 1;
       rocketActive = true;
-      // Мгновенная локальная отрисовка до ответа сети; после start она будет
-      // заменена точными серверными временем и коэффициентом.
-      syncRocketClock({ startedAt: Date.now(), now: Date.now() });
+      rocketStatusPending = false;
       rocketLastMultiplierText = '';
-      startRocketAnimation();
-      // Визуальный старт также происходит без ожидания ответа API.
-      $('rocketSky').classList.add('flying');
-      playRocketLaunchSound();
-      $('rocketStatus').textContent = 'Ракета набирает высоту. Заберите выигрыш до взрыва.';
-      const runId = rocketRunId;
-      const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
-      if (!rocketActive || runId !== rocketRunId) return;
-      if (data.crashed) {
-        return finishRocketCrash(`Ракета взорвалась на ${Number(data.multiplier).toFixed(2)}x`);
-      }
       render({ first_name: profile.name }, data.profile);
       syncRocketClock(data);
       $('rocketBet').disabled = true;
+      playRocketLaunchSound();
       // Перезапускаем CSS-полёт после получения ставки. Отрицательная задержка
       // сохраняет верную позицию, если ответ сервера пришёл не мгновенно.
       const star = $('rocketStar');
@@ -277,10 +269,14 @@ $('rocketButton').onclick = async () => {
       $('rocketStar').style.removeProperty('--flight-delay');
       $('rocketMultiplier').textContent = '1.00x';
       $('rocketStatus').textContent = 'Сделай ставку и забери выигрыш до взрыва.';
-      // Активный раунд мог быть создан предыдущим двойным запросом — восстанавливаем
-      // его вместо того, чтобы оставить игрока без возможности забрать выигрыш.
-      if (String(e.message).includes('Ракета уже запущена')) restoreRocketRound();
-      toast(e.message);
+      // Конфликт означает, что серверный раунд уже существует (например,
+      // ответ прошлого запроса пришёл с задержкой). Восстанавливаем именно его.
+      if (String(e.message).includes('Ракета уже запущена')) {
+        await restoreRocketRound();
+        toast('Восстановлен уже начатый раунд');
+      } else {
+        toast(e.message);
+      }
     }
   } finally {
     // После мгновенного взрыва finishRocketCrash уже восстановил состояние UI.

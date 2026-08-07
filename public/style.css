@@ -2,12 +2,19 @@
 /* Объёмные, но лёгкие эффекты полёта: только opacity/transform, поэтому они
    не перегружают Telegram WebView. */
 .rocket-sky.flying{box-shadow:inset 0 0 42px #6e8dff22,0 0 22px #536fff24}
+.rocket-sky.flying::before{animation:starfieldRush 1.8s linear infinite}
 .rocket-sky.flying::after{animation:skyPulse 2.8s ease-in-out infinite alternate}
+.rocket-sky.flying .rocket-star{filter:drop-shadow(0 0 12px #fff2a8) drop-shadow(-14px 10px 12px #ff6538)}
+.rocket-sky.flying .rocket-star::before{content:'';position:absolute;inset:-18px;border:1px solid #ffe39a66;border-radius:50%;animation:rocketHalo 1s ease-out infinite;z-index:-3}
+.rocket-sky.crashed::before{animation:crashFlash .7s ease}
 .rocket-sky.flying .rocket-launchpad{animation:launchpadPulse .7s ease-in-out infinite alternate}
 .rocket-sky.flying .rocket-grid{animation:gridDrift 4s linear infinite}
 .rocket-sky.flying .rocket-trajectory-progress{animation:trajectoryDraw 36s linear var(--flight-delay,0ms) forwards,trajectoryPulse 1.3s ease-in-out infinite alternate}
 .rocket-sky.crashed .rocket-star{animation:none;filter:drop-shadow(0 0 22px #ff653e);transform:scale(1.35) rotate(25deg)}
 @keyframes skyPulse{to{filter:saturate(1.35) brightness(1.15)}}
+@keyframes starfieldRush{from{transform:scale(1);opacity:.4}to{transform:scale(1.18);opacity:.8}}
+@keyframes rocketHalo{from{transform:scale(.55);opacity:.9}to{transform:scale(1.8);opacity:0}}
+@keyframes crashFlash{0%,25%{background-color:#fff4cc;opacity:.95}100%{background-color:transparent;opacity:.4}}
 @keyframes launchpadPulse{to{box-shadow:0 0 0 9px #b4c7ff18,0 0 20px #a7c2ff88}}
 @keyframes gridDrift{to{transform:translateY(18px)}}
 @keyframes trajectoryPulse{to{filter:drop-shadow(0 0 7px #ffe48b) brightness(1.4)}}
