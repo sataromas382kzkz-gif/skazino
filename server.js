@@ -499,26 +499,26 @@ function rocketLiveState(round, now = Date.now()) {
 
 function drawRocketCrashMultiplier() {
   // Результат каждого раунда случаен и генерируется криптографически безопасно.
-  // Распределение смещено к низким множителям: более трети раундов взрываются
-  // до 1.10x, что убирает «гарантированный» ранний кэшаут. Высокие кэфы
-  // встречаются редко и тем вероятнее, чем больше множитель.
+  // Распределение смещено к низким множителям и настроено на «лояльность» к игроку:
+  // примерно треть раундов взрывается в диапазоне 1.01–1.20x (риск есть, но он
+  // наступает позже), а крупные кэфы встречаются редко и тем реже, чем они выше.
   const roll = crypto.randomInt(0, 1_000_000) / 1_000_000;
   let multiplier;
-  if (roll < 0.38) {
-    // Ранний взрыв: 1.01–1.10x (частый риск).
-    multiplier = ROCKET_MIN_CRASH_MULTIPLIER + (roll / 0.38) * 0.09;
-  } else if (roll < 0.72) {
-    // 1.10–1.70x.
-    multiplier = 1.10 + ((roll - 0.38) / 0.34) * 0.60;
-  } else if (roll < 0.89) {
-    // 1.70–3.00x.
-    multiplier = 1.70 + ((roll - 0.72) / 0.17) * 1.30;
-  } else if (roll < 0.97) {
+  if (roll < 0.32) {
+    // Ранний взрыв: 1.01–1.20x.
+    multiplier = ROCKET_MIN_CRASH_MULTIPLIER + (roll / 0.32) * 0.19;
+  } else if (roll < 0.62) {
+    // 1.20–1.80x.
+    multiplier = 1.20 + ((roll - 0.32) / 0.30) * 0.60;
+  } else if (roll < 0.82) {
+    // 1.80–3.00x.
+    multiplier = 1.80 + ((roll - 0.62) / 0.20) * 1.20;
+  } else if (roll < 0.96) {
     // 3.00–7.00x.
-    multiplier = 3.00 + ((roll - 0.89) / 0.08) * 4.00;
+    multiplier = 3.00 + ((roll - 0.82) / 0.14) * 4.00;
   } else {
     // Редкие крупные кэфы: 7.00–20.00x.
-    multiplier = 7.00 + ((roll - 0.97) / 0.03) ** 2 * (ROCKET_MAX_MULTIPLIER - 7.00);
+    multiplier = 7.00 + ((roll - 0.96) / 0.04) ** 2 * (ROCKET_MAX_MULTIPLIER - 7.00);
   }
   return Number(Math.min(ROCKET_MAX_MULTIPLIER, multiplier).toFixed(2));
 }
