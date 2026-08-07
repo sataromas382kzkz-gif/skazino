@@ -1,4 +1,23 @@
+# ---- Мусорные файлы из рабочей папки (не для репозитория) ----
+# Гигантский индекс картинок — превышает лимит GitHub (100 МБ)
+/img_index.txt
+/ascii.txt
+/inspect.py
+# Исходные PNG-модели в корне: их копии лежат в public/case-*.png
+/ChatGPT Image*.png
+# Локальная БД и временные скрипты
+/data/
+/sizes.cjs
+
+# ---- Node ----
 node_modules/
+npm-debug.log*
+
+# ---- Окружение ----
 .env
-*.log
-data/users.json
+.env.local
+.env.*.local
+
+# ---- Системные ----
+.DS_Store
+Thumbs.db

@@ -430,6 +430,45 @@ const cases = {
       { label: '🚀 Ракета Telegram', type: 'rocket', chance: 7 },
       { label: '💍 Кольцо Telegram', type: 'ring', chance: 3 }
     ]
+  },
+  star: {
+    name: 'КЕЙС ЗВЕЗДА',
+    image: '/case-star.png',
+    price: 100,
+    rewards: [
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 50 },
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 20 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 15 },
+      { label: '💍 Кольцо Telegram', type: 'ring', chance: 10 },
+      { label: '🏆 Кубок Telegram', type: 'cup', chance: 4 },
+      { label: '🍦 NFT-мороженое', type: 'nft-icecream', chance: 1 }
+    ]
+  },
+  boss: {
+    name: 'КЕЙС БОССА',
+    image: '/case-boss.png',
+    price: 150,
+    rewards: [
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 30 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 20 },
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 20 },
+      { label: '🏆 Кубок Telegram', type: 'cup', chance: 10 },
+      { label: '💎 Алмаз Telegram', type: 'diamond', chance: 10 },
+      { label: '💍 Кольцо Telegram', type: 'ring', chance: 8 },
+      { label: '🐍 NFT-змея', type: 'nft-snake', chance: 2 }
+    ]
+  },
+  major: {
+    name: 'КЕЙС МАЖОРА',
+    image: '/case-major.png',
+    price: 200,
+    rewards: [
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 35 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 35 },
+      { label: '💎 Алмаз Telegram', type: 'diamond', chance: 20 },
+      { label: '🍜 NFT-доширак', type: 'nft-doshirak', chance: 5 },
+      { label: '🍭 NFT-леденец', type: 'nft-lollipop', chance: 5 }
+    ]
   }
 };
 

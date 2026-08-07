@@ -73,7 +73,7 @@ function renderGifts() {
   // У старых профилей giftItems формируется сервером из уже накопленных gifts.
   const gifts = profile?.giftItems || [];
   $('giftsList').innerHTML = gifts.length ? gifts.slice().reverse().map(gift => {
-    const fallbackNames = { bear: 'Мишка Telegram', heart: 'Сердце Telegram', rose: 'Роза Telegram', cake: 'Торт Telegram', bouquet: 'Букет Telegram', rocket: 'Ракета Telegram', ring: 'Кольцо Telegram' };
+    const fallbackNames = { bear: 'Мишка Telegram', heart: 'Сердце Telegram', rose: 'Роза Telegram', cake: 'Торт Telegram', bouquet: 'Букет Telegram', rocket: 'Ракета Telegram', ring: 'Кольцо Telegram', cup: 'Кубок Telegram', diamond: 'Алмаз Telegram', 'nft-icecream': 'NFT-мороженое', 'nft-snake': 'NFT-змея', 'nft-doshirak': 'NFT-доширак', 'nft-lollipop': 'NFT-леденец' };
     const name = rewardName(gift) === 'Приз' ? (fallbackNames[gift.type] || 'Подарок Telegram') : rewardName(gift);
     return `<article class="gift-card"><span class="gift-icon">${rewardEmoji(gift)}</span><div><b>${escapeHtml(name)}</b><small>Выбито из кейса</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Вывести</a></article>`;
   }).join('') : '<p class="empty-gifts">Пока нет подарков. Откройте кейс — и они появятся здесь.</p>';
@@ -293,6 +293,12 @@ function rewardEmoji(reward) {
   if (reward?.type === 'bouquet') return '💐';
   if (reward?.type === 'rocket') return '🚀';
   if (reward?.type === 'ring') return '💍';
+  if (reward?.type === 'cup') return '🏆';
+  if (reward?.type === 'diamond') return '💎';
+  if (reward?.type === 'nft-icecream') return '🍦';
+  if (reward?.type === 'nft-snake') return '🐍';
+  if (reward?.type === 'nft-doshirak') return '🍜';
+  if (reward?.type === 'nft-lollipop') return '🍭';
   return '⭐';
 }
 function escapeHtml(value) {
