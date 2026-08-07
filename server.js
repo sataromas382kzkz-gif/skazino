@@ -433,7 +433,7 @@ const cases = {
   },
   star: {
     name: 'КЕЙС ЗВЕЗДА',
-    image: '/case-star.png',
+    image: '/case-major.png',
     price: 100,
     rewards: [
       { label: '🌹 Роза Telegram', type: 'rose', chance: 50 },
@@ -460,7 +460,7 @@ const cases = {
   },
   major: {
     name: 'КЕЙС МАЖОРА',
-    image: '/case-major.png',
+    image: '/case-star.png',
     price: 200,
     rewards: [
       { label: '🎂 Торт Telegram', type: 'cake', chance: 35 },
