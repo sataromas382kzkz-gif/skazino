@@ -45,7 +45,7 @@ function render(user, data) {
   $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
   $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
-  const rocketStars = data.rocketStars ?? data.prizeStars ?? 0;
+  const rocketStars = data.caseStars ?? data.stars ?? 0;
   if ($('rocketStars')) $('rocketStars').textContent=rocketStars;
   if ($('profilePrizeStars')) $('profilePrizeStars').textContent=rocketStars;
   if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
@@ -80,7 +80,7 @@ function renderGifts() {
 }
 $('giftsButton').onclick=()=>{ renderGifts(); $('giftsModal').classList.add('visible'); };
 $('withdrawStarsButton').onclick=()=>{
-  if ((profile?.prizeStars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 звёзд');
+  if ((profile?.caseStars ?? profile?.stars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 звёзд');
   window.open('https://t.me/murarru', '_blank', 'noopener');
 };
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
