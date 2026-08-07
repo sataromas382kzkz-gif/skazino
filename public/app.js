@@ -375,11 +375,15 @@ function showCase(item) {
   const card=document.createElement('article');
   card.className='case-card';
   // «Барон» увеличен на 5%; для «Удачи» сохранена отдельная посадка модели.
+  // Новые модели (звезда/босс/мажор) приходят с прозрачными полями и слегка
+  // увеличиваются, чтобы визуально совпадать с халявой и бароном.
   const imageClass = item.id === 'lucky'
     ? ' case-art-image--lucky'
     : item.id === 'baron'
       ? ' case-art-image--baron'
-      : '';
+      : ['star', 'boss', 'major'].includes(item.id)
+        ? ` case-art-image--${item.id}`
+        : '';
   const caseArt = item.image
     ? `<img class="case-art-image${imageClass}" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
     : '🎁';
