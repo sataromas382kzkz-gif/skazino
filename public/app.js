@@ -95,6 +95,9 @@ let rocketStatusTimer = 0;
 let rocketStatusPending = false;
 let rocketLastMultiplierText = '';
 let rocketFlightSoundTimer = 0;
+// Номер локального раунда отсекает запоздалые ответы status/start от уже
+// завершённой игры: они не смогут вернуть анимацию после взрыва.
+let rocketRunId = 0;
 
 function readServerTime(value) {
   const timestamp = typeof value === 'number' ? value : Date.parse(value);
@@ -131,7 +134,10 @@ function stopRocketAnimation() {
   rocketFlightSoundTimer = null;
 }
 function finishRocketCrash(message) {
+  // Инвалидируем все незавершённые сетевые ответы и полностью очищаем полёт.
+  rocketRunId += 1;
   rocketActive = false;
+  rocketStatusPending = false;
   stopRocketAnimation();
   $('rocketBet').disabled = false;
   $('rocketSky').classList.remove('flying');
@@ -161,23 +167,24 @@ function renderRocketFrame() {
 }
 async function checkRocketStatus() {
   if (!rocketActive || rocketStatusPending) return;
+  const runId = rocketRunId;
   rocketStatusPending = true;
   try {
     const status = await request('/api/rocket/status');
-    if (!rocketActive) return;
+    if (!rocketActive || runId !== rocketRunId) return;
     if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${Number(status.multiplier).toFixed(2)}x`);
     // Сервер — источник истины, а requestAnimationFrame отрисовывает все
     // промежуточные сотые между синхронизациями без рывков.
     syncRocketClock(status);
   } catch (error) {
     // После взрыва сервер удаляет раунд. Если ответ о взрыве не дошёл,
-    // 404 означает именно завершённый раунд, а не повод продолжать анимацию.
-    if (rocketActive && String(error.message).includes('Нет активной ракеты')) {
+    // «Нет активной ракеты» означает завершённый раунд, а не повод лететь дальше.
+    if (rocketActive && runId === rocketRunId && String(error.message).includes('Нет активной ракеты')) {
       finishRocketCrash('Ракета взорвалась. Ставка сгорела.');
     }
     // При кратковременном сбое сети не останавливаем уже запущенный раунд.
   } finally {
-    rocketStatusPending = false;
+    if (runId === rocketRunId) rocketStatusPending = false;
   }
 }
 function startRocketAnimation() {
@@ -203,6 +210,7 @@ $('rocketButton').onclick = async () => {
       $('rocketBet').value = bet;
       // Запускаем локальный отсчёт прямо по нажатию, не дожидаясь сети.
       // После ответа он синхронизируется с серверным временем раунда.
+      rocketRunId += 1;
       rocketActive = true;
       // Мгновенная локальная отрисовка до ответа сети; после start она будет
       // заменена точными серверными временем и коэффициентом.
@@ -213,7 +221,9 @@ $('rocketButton').onclick = async () => {
       $('rocketSky').classList.add('flying');
       playRocketLaunchSound();
       $('rocketStatus').textContent = 'Ракета набирает высоту. Заберите выигрыш до взрыва.';
+      const runId = rocketRunId;
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
+      if (!rocketActive || runId !== rocketRunId) return;
       if (data.crashed) {
         return finishRocketCrash(`Ракета взорвалась на ${Number(data.multiplier).toFixed(2)}x`);
       }
@@ -235,7 +245,9 @@ $('rocketButton').onclick = async () => {
       startRocketAnimation();
     } else {
       const data = await request('/api/rocket/cashout', { method: 'POST' });
+      rocketRunId += 1;
       rocketActive = false;
+      rocketStatusPending = false;
       stopRocketAnimation();
       $('rocketBet').disabled = false;
       $('rocketSky').classList.remove('flying');
@@ -254,13 +266,20 @@ $('rocketButton').onclick = async () => {
         if (rocketActive) { button.disabled = false; updateRocketButton(); }
       }
     } else {
-      // Локальный отсчёт уже был показан, поэтому при отказе сервера откатываем UI.
+      // Локальный отсчёт уже был показан, поэтому при отказе сервера безусловно
+      // сбрасываем все таймеры и классы. Это исключает «вечный» полёт после ошибки.
+      rocketRunId += 1;
       rocketActive = false;
+      rocketStatusPending = false;
       stopRocketAnimation();
       $('rocketSky').classList.remove('flying');
+      $('rocketSky').classList.remove('crashed');
       $('rocketStar').style.removeProperty('--flight-delay');
       $('rocketMultiplier').textContent = '1.00x';
       $('rocketStatus').textContent = 'Сделай ставку и забери выигрыш до взрыва.';
+      // Активный раунд мог быть создан предыдущим двойным запросом — восстанавливаем
+      // его вместо того, чтобы оставить игрока без возможности забрать выигрыш.
+      if (String(e.message).includes('Ракета уже запущена')) restoreRocketRound();
       toast(e.message);
     }
   } finally {
@@ -428,6 +447,7 @@ async function restoreRocketRound() {
   try {
     const status = await request('/api/rocket/status');
     if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
+    rocketRunId += 1;
     rocketActive = true;
     syncRocketClock(status);
     $('rocketBet').value = status.bet;
