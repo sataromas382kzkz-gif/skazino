@@ -666,14 +666,24 @@ function initPlinko() {
     }
 
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    // Сервер заранее определяет выигрышный bucket. Направляем шарик в центр
+    // именно этого слота, чтобы визуальное место падения не расходилось с
+    // фактическим коэффициентом из ответа API.
+    if (Number.isInteger(ball.bucket)) {
+      const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
+      ball.targetX = PADDING_X + slotWidth * (ball.bucket + 0.5);
+      if (ball.y > bottomY - rowGap * 1.8) {
+        const distance = ball.targetX - ball.x;
+        ball.vx += distance * 18 * dt;
+        ball.vx = Math.max(-180, Math.min(180, ball.vx));
+      }
+    }
     if (ball.y >= bottomY) {
       ball.y = bottomY;
+      ball.x = Number.isFinite(ball.targetX) ? ball.targetX : ball.x;
       ball.vy = 0;
       ball.vx = 0;
       ball.settled = true;
-      // bucket приходит с сервера и не должен заменяться координатой анимации.
-      // Координату оставляем только для физического положения шарика.
-      ball.visualBucket = bucketFromX(ball.x);
     }
   }
 
@@ -710,9 +720,13 @@ function initPlinko() {
       );
       const win = balance >= totalBet;
       const prefix = betCount === 1 ? 'Выигрыш' : 'Суммарный выигрыш';
+      const multipliers = balls.map(ball => `${Number(ball.multiplier).toFixed(2)}x`).join(', ');
+      const multiplierText = betCount === 1
+        ? multipliers
+        : `${multipliers} · итого ${(balance / totalBet).toFixed(2)}x`;
       resultEl.textContent = win
-        ? `🎉 ${prefix}: ${balance} ⭐ (${(balance / totalBet).toFixed(2)}x)`
-        : `💔 ${prefix}: ${balance} ⭐ (${(balance / totalBet).toFixed(2)}x)`;
+        ? `🎉 ${prefix}: ${balance} ⭐ (${multiplierText})`
+        : `💔 ${prefix}: ${balance} ⭐ (${multiplierText})`;
       resultEl.classList.add('show');
       resultEl.classList.toggle('win', win);
       resultEl.classList.toggle('lose', !win);
@@ -741,6 +755,10 @@ function initPlinko() {
   }
 
   function setRisk(risk) {
+    // Нельзя менять набор коэффициентов посреди серии: иначе уже летящий
+    // шарик получает серверный multiplier одного риска, а подпись на поле
+    // отображается от другого.
+    if (dropping) return;
     currentRisk = risk;
     riskButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.risk === risk));
     drawBoard();
