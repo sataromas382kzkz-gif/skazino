@@ -490,6 +490,7 @@ function initPlinko() {
   const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
 
   const ROWS = 12;
+  const SLOT_COUNT = 8;
   const PADDING_X = 20;
   const TOP_Y = 22;
   const BOTTOM_MARGIN = 34;
@@ -501,12 +502,19 @@ function initPlinko() {
   let boardHeight = 360;
 
   let currentRisk = 'low';
+  let currentBalls = 1;
   let dropping = false;
+  let requestsDone = false;
   let balls = [];
   let lastClickX = 0;
-  let currentBucket = null;
   let animationId = null;
   let lastTime = 0;
+
+  function bucketFromX(x) {
+    const clamped = Math.max(PADDING_X, Math.min(boardWidth - PADDING_X, x));
+    const index = Math.floor((clamped - PADDING_X) / ((boardWidth - PADDING_X * 2) / SLOT_COUNT));
+    return Math.max(0, Math.min(SLOT_COUNT - 1, index));
+  }
 
   const PAYOUT_LABELS = {
     low:    [['0.4x','0.6x','0.8x','1.1x','1.4x','1.6x','2.4x','4.0x']],
@@ -514,7 +522,7 @@ function initPlinko() {
     high:   [['0.2x','0.4x','0.6x','0.9x','1.2x','1.8x','4.0x','12x']]
   };
   const PAYOUT_COLORS = {
-    low:    ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b', '#ff5b5b'],
+    low:    ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
     medium: ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
     high:   ['#8a93b8', '#9aa3c4', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b', '#ff5b5b']
   };
@@ -566,12 +574,16 @@ function initPlinko() {
 
     const labels = PAYOUT_LABELS[currentRisk][0];
     const colors = PAYOUT_COLORS[currentRisk];
-    const slotCount = ROWS;
+    const slotCount = SLOT_COUNT;
     const slotWidth = (boardWidth - PADDING_X * 2) / slotCount;
+    // Серверный bucket — единственный источник результата. Не вычисляем
+    // подсветку повторно по x: физическая анимация может попасть на границу
+    // соседней визуальной зоны и показать неверный множитель.
+    const highlightBuckets = new Set(balls.map(ball => ball.bucket).filter(Number.isInteger));
     for (let i = 0; i < slotCount; i += 1) {
       const x = PADDING_X + slotWidth * i;
       const y = boardHeight - BOTTOM_MARGIN + 4;
-      if (i === currentBucket) {
+      if (highlightBuckets.has(i)) {
         ctx.fillStyle = 'rgba(125,255,160,0.22)';
         ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
       }
@@ -604,21 +616,23 @@ function initPlinko() {
   function renderFrame() {
     drawBoard();
     for (const ball of balls) {
-      ctx.save();
-      const gradient = ctx.createRadialGradient(
-        ball.x - 2, ball.y - 2, 1,
-        ball.x, ball.y, BALL_RADIUS + 1
-      );
-      gradient.addColorStop(0, '#fff6c8');
-      gradient.addColorStop(0.45, '#ffd04a');
-      gradient.addColorStop(1, '#ff9d1f');
-      ctx.fillStyle = gradient;
-      ctx.shadowColor = 'rgba(255,180,60,0.9)';
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      if (!ball.settled) {
+        ctx.save();
+        const gradient = ctx.createRadialGradient(
+          ball.x - 2, ball.y - 2, 1,
+          ball.x, ball.y, BALL_RADIUS + 1
+        );
+        gradient.addColorStop(0, '#fff6c8');
+        gradient.addColorStop(0.45, '#ffd04a');
+        gradient.addColorStop(1, '#ff9d1f');
+        ctx.fillStyle = gradient;
+        ctx.shadowColor = 'rgba(255,180,60,0.9)';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
   }
 
@@ -653,14 +667,18 @@ function initPlinko() {
       ball.vy = 0;
       ball.vx = 0;
       ball.settled = true;
+      // bucket приходит с сервера и не должен заменяться координатой анимации.
+      // Координату оставляем только для физического положения шарика.
+      ball.visualBucket = bucketFromX(ball.x);
     }
   }
 
-  function dropBall(serverBucket, multiplier) {
-    const x = lastClickX >= PADDING_X && lastClickX <= boardWidth - PADDING_X ? lastClickX : boardWidth / 2;
+  function dropBall(bucket, multiplier) {
+    // Каждый шарик стартует сверху со своей случайной горизонтальной позиции.
+    const x = PADDING_X + Math.random() * (boardWidth - PADDING_X * 2);
     const ball = {
       x, y: TOP_Y, vx: (Math.random() - 0.5) * 30, vy: 0,
-      settled: false, bucket: serverBucket, multiplier
+      settled: false, bucket: Number(bucket), multiplier
     };
     balls.push(ball);
     return ball;
@@ -671,24 +689,36 @@ function initPlinko() {
     lastTime = time;
     updateAllBalls(dt);
     renderFrame();
-    if (balls.some(ball => !ball.settled)) {
+    const moving = balls.filter(ball => !ball.settled);
+    if (moving.length || !requestsDone) {
+      // Запросы на следующие шарики могут ещё выполняться. Не завершаем
+      // раунд после первого долетевшего шарика.
       animationId = requestAnimationFrame(animate);
     } else {
       animationId = null;
-      const lastBall = balls[balls.length - 1];
-      if (lastBall && lastBall.multiplier !== undefined) {
-        const win = lastBall.multiplier >= 1;
-        const amount = Math.floor(Number(betInput.value || 10) * lastBall.multiplier);
-        resultEl.textContent = win
-          ? `🎉 Выигрыш: ${amount} ⭐ (${lastBall.multiplier}x)`
-          : `💔 Увы, ${amount} ⭐ (${lastBall.multiplier}x)`;
-        resultEl.classList.add('show');
-        resultEl.classList.toggle('win', win);
-        resultEl.classList.toggle('lose', !win);
-        setTimeout(() => resultEl.classList.remove('show'), 2600);
-        if (win) playWinSound(); else playTone(160, .2, .06);
-      }
+      // Завершённая попытка: финальная подсветка уже отрисована drawBoard().
+      drawBoard();
+      const bet = Math.max(10, Number(betInput.value) || 10);
+      const betCount = balls.length;
+      const totalBet = bet * betCount;
+      const balance = balls.reduce(
+        (sum, ball) => sum + Math.floor(bet * (ball.multiplier || 0)), 0
+      );
+      const win = balance >= totalBet;
+      const prefix = betCount === 1 ? 'Выигрыш' : 'Суммарный выигрыш';
+      resultEl.textContent = win
+        ? `🎉 ${prefix}: ${balance} ⭐ (${(balance / totalBet).toFixed(2)}x)`
+        : `💔 ${prefix}: ${balance} ⭐ (${(balance / totalBet).toFixed(2)}x)`;
+      resultEl.classList.add('show');
+      resultEl.classList.toggle('win', win);
+      resultEl.classList.toggle('lose', !win);
+      setTimeout(() => resultEl.classList.remove('show'), 2600);
+      if (win) playWinSound(); else playTone(160, .2, .06);
+      // После показа результата полностью очищаем сцену. Иначе settled-шары
+      // могли сохраниться и попасть в следующую попытку.
       dropping = false;
+      balls.length = 0;
+      renderFrame();
       dropButton.disabled = false;
       updateDropButton();
     }
@@ -698,12 +728,12 @@ function initPlinko() {
     for (const ball of balls) {
       if (!ball.settled) updateBall(ball, dt);
     }
-    if (balls.length > 12) balls = balls.slice(-12);
   }
 
   function updateDropButton() {
     const bet = Math.max(10, Number(betInput.value) || 10);
-    dropButton.textContent = `🎯 Бросить шарик за ${bet} ⭐`;
+    const ballsLabel = currentBalls === 1 ? 'шарик' : 'шариков';
+    dropButton.textContent = `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
   }
 
   function setRisk(risk) {
@@ -712,29 +742,57 @@ function initPlinko() {
     drawBoard();
   }
 
+  const ballsButtons = [...document.querySelectorAll('.plinko-balls-btn')];
+  function setBallsCount(count) {
+    currentBalls = Math.max(1, Math.min(10, Number(count) || 1));
+    ballsButtons.forEach(btn => btn.classList.toggle('active', Number(btn.dataset.balls) === currentBalls));
+    updateDropButton();
+  }
+
   dropButton.onclick = async () => {
     if (!profile) return toast('Подождите, профиль ещё загружается');
     if (dropping) return;
     const bet = Math.max(10, Math.floor(Number(betInput.value) || 10));
     betInput.value = bet;
     dropping = true;
+    requestsDone = false;
     dropButton.disabled = true;
     resultEl.classList.remove('show');
+    // Новая попытка: убираем шарики предыдущей попытки с доски.
+    balls = [];
+    if (animationId) cancelAnimationFrame(animationId);
+    animationId = null;
+    renderFrame();
+    const ballsToDrop = currentBalls;
     try {
-      const data = await request('/api/plinko/drop', {
-        method: 'POST',
-        body: JSON.stringify({ bet, risk: currentRisk })
-      });
-      render({ first_name: profile.name }, data.profile);
-      currentBucket = data.bucket;
-      drawBoard();
-      dropBall(data.bucket, data.multiplier);
-      lastTime = performance.now();
-      if (animationId) cancelAnimationFrame(animationId);
-      animationId = requestAnimationFrame(animate);
+      // Отправляем по одному запросу на шарик; сервер сам списывает bet и
+      // начисляет выигрыш. Каждый шарик падает со случайной позиции сверху.
+      for (let i = 0; i < ballsToDrop; i += 1) {
+        const data = await request('/api/plinko/drop', {
+          method: 'POST',
+          body: JSON.stringify({ bet, risk: currentRisk })
+        });
+        render({ first_name: profile.name }, data.profile);
+        dropBall(data.bucket, data.multiplier);
+        if (!animationId) {
+          lastTime = performance.now();
+          animationId = requestAnimationFrame(animate);
+        }
+      }
+      // Ждём, пока все шарики долетят: после этого animate сам разблокирует кнопку.
+      requestsDone = true;
     } catch (error) {
-      toast(error.message);
+      // При ошибке одного из запросов останавливаем текущую анимацию и
+      // очищаем уже полученные шарики. Иначе requestsDone остаётся false,
+      // requestAnimationFrame продолжает работать бесконечно, а старая
+      // попытка видна при следующем броске.
+      requestsDone = true;
       dropping = false;
+      if (animationId) cancelAnimationFrame(animationId);
+      animationId = null;
+      balls = [];
+      renderFrame();
+      toast(error.message);
       dropButton.disabled = false;
       updateDropButton();
     }
@@ -742,6 +800,9 @@ function initPlinko() {
 
   betInput.addEventListener('input', updateDropButton);
   riskButtons.forEach(btn => btn.addEventListener('click', () => setRisk(btn.dataset.risk)));
+  ballsButtons.forEach(btn => btn.addEventListener('click', () => {
+    if (!dropping) setBallsCount(btn.dataset.balls);
+  }));
 
   canvas.addEventListener('click', event => {
     const rect = canvas.getBoundingClientRect();

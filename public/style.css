@@ -59,6 +59,10 @@
 .plinko-risk-btn{flex:1;border:1px solid #3f4c7b;border-radius:8px;padding:8px 4px;background:#10172b;color:#bfc9ee;font-size:11px;font-weight:bold;cursor:pointer;transition:.2s}
 .plinko-risk-btn:hover{border-color:#7562ff;color:#fff}
 .plinko-risk-btn.active{background:linear-gradient(135deg,#7562ff,#5a45e0);color:#fff;border-color:#7562ff}
+.plinko-balls-row{display:flex;align-items:center;gap:6px}
+.plinko-balls-btn{flex:1;border:1px solid #3f4c7b;border-radius:8px;padding:8px 4px;background:#10172b;color:#bfc9ee;font-size:12px;font-weight:bold;cursor:pointer;transition:.2s}
+.plinko-balls-btn:hover{border-color:#7562ff;color:#fff}
+.plinko-balls-btn.active{background:linear-gradient(135deg,#7562ff,#5a45e0);color:#fff;border-color:#7562ff}
 .plinko-drop-btn{width:100%;border:0;border-radius:10px;padding:13px;background:linear-gradient(135deg,#e19036,#d07828);color:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:.2s;box-shadow:0 4px 14px #e1903644}
 .plinko-drop-btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
 .plinko-drop-btn:active{transform:translateY(0)}

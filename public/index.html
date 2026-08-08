@@ -9,7 +9,7 @@
 <body>
   <main>
     <header><div class="avatar" id="avatar">✦</div><button id="profileButton" class="profile-button"><b id="name">Загрузка...</b><small>Твой личный кабинет</small></button><div class="stars">⭐ <span id="stars">—</span></div></header>
-    <nav class="page-nav" aria-label="Навигация по приложению"><a href="#home">Главная</a><a href="#casesSection">🎁 Кейсы</a><a href="#miniGamesSection">🎮 Мини игры</a></nav>
+    <nav class="page-nav" aria-label="Навигация по приложению"><a href="#home">🏠 Главная</a><a href="#casesSection">🎁 Кейсы</a><a href="#miniGamesSection">🎮 Мини игры</a></nav>
     <section id="home" class="hero"><span>TELEGRAM MINI APP</span><h1>Привет,<br><strong id="heroName">друг</strong> 👋</h1><p>Получай бонусы и управляй профилем прямо в Telegram.</p></section>
     <section class="card"><div><small>ЕЖЕДНЕВНЫЙ БОНУС</small><h2>+5 ⭐</h2><p id="dailyStatus">Заходи каждый день и забирай награду.</p></div><button id="daily">Забрать</button></section>
     <section id="casesSection" class="cases-section">
@@ -43,6 +43,13 @@
               <button class="plinko-risk-btn active" data-risk="low">🟢 Лёгкая</button>
               <button class="plinko-risk-btn" data-risk="medium">🟡 Средняя</button>
               <button class="plinko-risk-btn" data-risk="high">🔴 Тяжёлая</button>
+            </div>
+            <div class="plinko-balls-row">
+              <span class="plinko-risk-label">Шариков:</span>
+              <button class="plinko-balls-btn active" data-balls="1">1</button>
+              <button class="plinko-balls-btn" data-balls="3">3</button>
+              <button class="plinko-balls-btn" data-balls="5">5</button>
+              <button class="plinko-balls-btn" data-balls="10">10</button>
             </div>
             <button id="plinkoButton" class="plinko-drop-btn">🎯 Бросить шарик за 10 ⭐</button>
           </div>
