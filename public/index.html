@@ -9,14 +9,47 @@
 <body>
   <main>
     <header><div class="avatar" id="avatar">✦</div><button id="profileButton" class="profile-button"><b id="name">Загрузка...</b><small>Твой личный кабинет</small></button><div class="stars">⭐ <span id="stars">—</span></div></header>
-    <nav class="page-nav" aria-label="Навигация по приложению"><a href="#home">Главная</a><a href="#casesSection">Кейсы</a><a href="#rocketSection">🚀 Ракета</a></nav>
+    <nav class="page-nav" aria-label="Навигация по приложению"><a href="#home">Главная</a><a href="#casesSection">🎁 Кейсы</a><a href="#miniGamesSection">🎮 Мини игры</a></nav>
     <section id="home" class="hero"><span>TELEGRAM MINI APP</span><h1>Привет,<br><strong id="heroName">друг</strong> 👋</h1><p>Получай бонусы и управляй профилем прямо в Telegram.</p></section>
     <section class="card"><div><small>ЕЖЕДНЕВНЫЙ БОНУС</small><h2>+5 ⭐</h2><p id="dailyStatus">Заходи каждый день и забирай награду.</p></div><button id="daily">Забрать</button></section>
     <section id="casesSection" class="cases-section">
       <div class="section-title"><div><small>ИСПЫТАЙ УДАЧУ</small><h2>Кейсы</h2></div><span>🎁</span></div>
       <div id="cases" class="cases"></div>
     </section>
-    <section id="rocketSection" class="rocket-section"><div class="section-title"><div><small>НОВЫЙ РЕЖИМ</small><h2>🚀 Ракета</h2></div><span>⭐</span></div><div class="rocket-card"><div class="rocket-balance">⭐ Звёзды для ставки: <b>⭐ <span id="rocketStars">—</span></b></div><div id="rocketSky" class="rocket-sky" aria-label="Игровое поле ракеты"><div class="rocket-grid" aria-hidden="true"></div><svg class="rocket-trajectory" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M 10 82 Q 43 69 88 20"></path><path class="rocket-trajectory-progress" d="M 10 82 Q 43 69 88 20"></path></svg><div class="rocket-launchpad" aria-hidden="true"></div><div class="rocket-aurora" aria-hidden="true"></div><div class="rocket-comets" aria-hidden="true"><i></i><i></i><i></i></div><div class="rocket-starscape" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><div id="rocketStar" class="rocket-star">🚀<span class="rocket-flame" aria-hidden="true"></span></div><div class="rocket-tracer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="rocket-exhaust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="rocket-particles" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p id="rocketStatus">Сделай ставку и забери выигрыш до взрыва.</p></div><div class="rocket-live"><span class="rocket-live-label"><i></i> ТЕКУЩИЙ КОЭФФИЦИЕНТ</span><output id="rocketMultiplier" class="rocket-multiplier" aria-live="polite">1.00x</output></div><div class="rocket-controls"><label>Ставка, ⭐<input id="rocketBet" type="number" min="20" step="1" value="20"></label><button id="rocketButton">Запустить за 20 ⭐</button></div><small>Ставка списывается с обычного баланса звёзд. Минимум: 20 ⭐</small></div></section>
+    <section id="miniGamesSection" class="mini-games-section">
+      <div class="section-title"><div><small>ВЫБЕРИ ИГРУ</small><h2>🎮 Мини игры</h2></div><span>🎯</span></div>
+      <div class="mini-games-tabs">
+        <button class="mini-game-tab active" data-game="rocket">🚀 Ракета</button>
+        <button class="mini-game-tab" data-game="plinko">📌 Плинко</button>
+      </div>
+
+      <div id="rocketGame" class="mini-game-panel active">
+        <div class="rocket-card"><div class="rocket-balance">⭐ Звёзды для ставки: <b>⭐ <span id="rocketStars">—</span></b></div><div id="rocketSky" class="rocket-sky" aria-label="Игровое поле ракеты"><div class="rocket-grid" aria-hidden="true"></div><svg class="rocket-trajectory" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M 10 82 Q 43 69 88 20"></path><path class="rocket-trajectory-progress" d="M 10 82 Q 43 69 88 20"></path></svg><div class="rocket-launchpad" aria-hidden="true"></div><div class="rocket-aurora" aria-hidden="true"></div><div class="rocket-comets" aria-hidden="true"><i></i><i></i><i></i></div><div class="rocket-starscape" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><div id="rocketStar" class="rocket-star">🚀<span class="rocket-flame" aria-hidden="true"></span></div><div class="rocket-tracer" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="rocket-exhaust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="rocket-particles" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p id="rocketStatus">Сделай ставку и забери выигрыш до взрыва.</p></div><div class="rocket-live"><span class="rocket-live-label"><i></i> ТЕКУЩИЙ КОЭФФИЦИЕНТ</span><output id="rocketMultiplier" class="rocket-multiplier" aria-live="polite">1.00x</output></div><div class="rocket-controls"><label>Ставка, ⭐<input id="rocketBet" type="number" min="20" step="1" value="20"></label><button id="rocketButton">Запустить за 20 ⭐</button></div><small>Ставка списывается с обычного баланса звёзд. Минимум: 20 ⭐</small></div>
+      </div>
+
+      <div id="plinkoGame" class="mini-game-panel">
+        <div class="plinko-card">
+          <div class="plinko-balance">⭐ Звёзды для ставки: <b>⭐ <span id="plinkoStars">—</span></b></div>
+          <div class="plinko-board-container">
+            <canvas id="plinkoCanvas" class="plinko-canvas"></canvas>
+            <div id="plinkoResult" class="plinko-result"></div>
+          </div>
+          <div class="plinko-controls">
+            <div class="plinko-bet-row">
+              <label>Ставка, ⭐<input id="plinkoBet" type="number" min="10" step="1" value="10"></label>
+            </div>
+            <div class="plinko-risk-row">
+              <span class="plinko-risk-label">Сложность:</span>
+              <button class="plinko-risk-btn active" data-risk="low">🟢 Лёгкая</button>
+              <button class="plinko-risk-btn" data-risk="medium">🟡 Средняя</button>
+              <button class="plinko-risk-btn" data-risk="high">🔴 Тяжёлая</button>
+            </div>
+            <button id="plinkoButton" class="plinko-drop-btn">🎯 Бросить шарик за 10 ⭐</button>
+          </div>
+          <small>Ставка списывается с баланса звёзд. Минимум: 10 ⭐</small>
+        </div>
+      </div>
+    </section>
     <section class="stats"><div><small>ЗВЁЗДЫ ДЛЯ КЕЙСОВ</small><b>⭐ <span id="statStars">—</span></b></div></section>
     <div id="profileModal" class="modal"><div class="modal-box profile-box"><h2>Личный кабинет</h2><div class="profile-info"><p>⭐ Звёзды для кейсов: <b id="profileCaseStars">—</b></p><p>⭐ Звёзды для ставки: <b id="profilePrizeStars">—</b></p><p>📅 Регистрация: <b id="profileRegistered">—</b></p></div><button id="withdrawStarsButton" class="withdraw-stars-button">🏆 Вывести звёзды</button><button id="giftsButton" class="profile-section-button">🎁 Мои подарки</button><label>Промокод<input id="promoCode" maxlength="40" placeholder="Введите промокод"></label><button id="promoButton">Активировать</button><label>Ссылка для пополнения<input id="topupLink" type="url" value="https://playerok.com/profile/SaharOK086/products" readonly></label><a id="topupLinkOpen" class="topup-link" href="https://playerok.com/profile/SaharOK086/products" target="_blank" rel="noopener">https://playerok.com/profile/SaharOK086/products</a></div></div>
     <div id="giftsModal" class="modal"><div class="modal-box gifts-box"><div class="modal-heading"><h2>Мои подарки</h2><button id="closeGifts" class="icon-button" aria-label="Закрыть">×</button></div><div id="giftsList" class="gifts-list"></div></div></div>

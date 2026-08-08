@@ -47,6 +47,7 @@ function render(user, data) {
   if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
   const rocketStars = data.caseStars ?? data.stars ?? 0;
   if ($('rocketStars')) $('rocketStars').textContent=rocketStars;
+  if ($('plinkoStars')) $('plinkoStars').textContent = rocketStars;
   if ($('profilePrizeStars')) $('profilePrizeStars').textContent=rocketStars;
   if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
   startDailyTimer();
@@ -86,6 +87,12 @@ $('withdrawStarsButton').onclick=()=>{
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
 // Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
 $('topupLink').onclick=()=>$('topupLink').select();
+// Переключение вкладок Мини-игр: активная панель соответствует выбранной игре.
+function switchMiniGame(game) {
+  document.querySelectorAll('.mini-game-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.game === game));
+  document.querySelectorAll('.mini-game-panel').forEach(panel => panel.classList.toggle('active', panel.id === `${game}Game`));
+}
+document.querySelectorAll('.mini-game-tab').forEach(tab => tab.addEventListener('click', () => switchMiniGame(tab.dataset.game)));
 let rocketActive = false;
 let rocketStartedAt = 0;
 let rocketServerNow = 0;
@@ -472,5 +479,282 @@ async function restoreRocketRound() {
     if (!String(error.message).includes('Нет активной ракеты')) console.warn('Не удалось восстановить ракету:', error);
   }
 }
-request('/api/me').then(x=>{ render(x.user,x.profile); return restoreRocketRound(); }).catch(e=>toast(e.message));
+
+// ============================ ПЛИНКО ============================
+function initPlinko() {
+  const canvas = $('plinkoCanvas');
+  const ctx = canvas.getContext('2d');
+  const betInput = $('plinkoBet');
+  const dropButton = $('plinkoButton');
+  const resultEl = $('plinkoResult');
+  const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
+
+  const ROWS = 12;
+  const PADDING_X = 20;
+  const TOP_Y = 22;
+  const BOTTOM_MARGIN = 34;
+  const BALL_RADIUS = 7;
+  let pegRadius = 3.5;
+  let rowGap = 0;
+  let colGap = 0;
+  let boardWidth = 300;
+  let boardHeight = 360;
+
+  let currentRisk = 'low';
+  let dropping = false;
+  let balls = [];
+  let lastClickX = 0;
+  let currentBucket = null;
+  let animationId = null;
+  let lastTime = 0;
+
+  const PAYOUT_LABELS = {
+    low:    [['0.4x','0.6x','0.8x','1.1x','1.4x','1.6x','2.4x','4.0x']],
+    medium: [['0.3x','0.5x','0.7x','1.0x','1.3x','1.7x','3.0x','6.0x']],
+    high:   [['0.2x','0.4x','0.6x','0.9x','1.2x','1.8x','4.0x','12x']]
+  };
+  const PAYOUT_COLORS = {
+    low:    ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b', '#ff5b5b'],
+    medium: ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
+    high:   ['#8a93b8', '#9aa3c4', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b', '#ff5b5b']
+  };
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    boardWidth = Math.max(200, rect.width || 300);
+    boardHeight = Math.max(280, rect.height || 360);
+    canvas.width = boardWidth * dpr;
+    canvas.height = boardHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
+    colGap = (boardWidth - PADDING_X * 2) / (ROWS - 1);
+    pegRadius = Math.max(2.5, Math.min(4.5, colGap * 0.11));
+  }
+
+  function pegPositions() {
+    const positions = [];
+    for (let row = 0; row < ROWS; row += 1) {
+      const count = ROWS - 1;
+      for (let col = 0; col <= count; col += 1) {
+        const x = PADDING_X + col * colGap;
+        const y = TOP_Y + row * rowGap;
+        positions.push({ x, y });
+      }
+    }
+    return positions;
+  }
+
+  function drawBoard() {
+    ctx.clearRect(0, 0, boardWidth, boardHeight);
+    ctx.save();
+    const sky = ctx.createLinearGradient(0, 0, 0, boardHeight);
+    sky.addColorStop(0, 'rgba(10,14,32,0.98)');
+    sky.addColorStop(0.55, 'rgba(16,22,46,0.96)');
+    sky.addColorStop(1, 'rgba(22,30,58,0.97)');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, boardWidth, boardHeight);
+
+    ctx.strokeStyle = 'rgba(120,140,255,0.05)';
+    ctx.lineWidth = 1;
+    for (let x = PADDING_X; x < boardWidth - PADDING_X; x += 24) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, boardHeight); ctx.stroke();
+    }
+    for (let y = 0; y < boardHeight; y += 24) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(boardWidth, y); ctx.stroke();
+    }
+
+    const labels = PAYOUT_LABELS[currentRisk][0];
+    const colors = PAYOUT_COLORS[currentRisk];
+    const slotCount = ROWS;
+    const slotWidth = (boardWidth - PADDING_X * 2) / slotCount;
+    for (let i = 0; i < slotCount; i += 1) {
+      const x = PADDING_X + slotWidth * i;
+      const y = boardHeight - BOTTOM_MARGIN + 4;
+      if (i === currentBucket) {
+        ctx.fillStyle = 'rgba(125,255,160,0.22)';
+        ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      }
+      ctx.strokeStyle = 'rgba(100,120,220,0.14)';
+      ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      ctx.fillStyle = colors[i];
+      ctx.font = `bold ${Math.max(9, Math.min(12, slotWidth * 0.2))}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = colors[i];
+      ctx.shadowBlur = 8;
+      ctx.fillText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
+      ctx.shadowBlur = 0;
+    }
+
+    const pegs = pegPositions();
+    ctx.save();
+    ctx.fillStyle = 'rgba(140,170,255,0.75)';
+    ctx.shadowColor = 'rgba(130,170,255,0.9)';
+    ctx.shadowBlur = 6;
+    for (const peg of pegs) {
+      ctx.beginPath();
+      ctx.arc(peg.x, peg.y, pegRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function renderFrame() {
+    drawBoard();
+    for (const ball of balls) {
+      ctx.save();
+      const gradient = ctx.createRadialGradient(
+        ball.x - 2, ball.y - 2, 1,
+        ball.x, ball.y, BALL_RADIUS + 1
+      );
+      gradient.addColorStop(0, '#fff6c8');
+      gradient.addColorStop(0.45, '#ffd04a');
+      gradient.addColorStop(1, '#ff9d1f');
+      ctx.fillStyle = gradient;
+      ctx.shadowColor = 'rgba(255,180,60,0.9)';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function updateBall(ball, dt) {
+    if (ball.settled) return;
+    const gravity = 420;
+    ball.vy = Math.min(300, (ball.vy || 0) + gravity * dt);
+    ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x + ball.vx * dt));
+    ball.y += ball.vy * dt;
+
+    const pegs = pegPositions();
+    for (const peg of pegs) {
+      const dx = ball.x - peg.x;
+      const dy = ball.y - peg.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = pegRadius + BALL_RADIUS - 1;
+      if (dist < minDist && dist > 0.001) {
+        const nx = dx / dist;
+        const ny = dy / dist;
+        ball.x = peg.x + nx * minDist;
+        ball.y = peg.y + ny * minDist;
+        ball.vy *= -0.28;
+        ball.vx = nx * 40 + (Math.random() - 0.5) * 22;
+        ball.vy += 30;
+        playTone(500 + Math.random() * 300, 0.03, 0.018);
+      }
+    }
+
+    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    if (ball.y >= bottomY) {
+      ball.y = bottomY;
+      ball.vy = 0;
+      ball.vx = 0;
+      ball.settled = true;
+    }
+  }
+
+  function dropBall(serverBucket, multiplier) {
+    const x = lastClickX >= PADDING_X && lastClickX <= boardWidth - PADDING_X ? lastClickX : boardWidth / 2;
+    const ball = {
+      x, y: TOP_Y, vx: (Math.random() - 0.5) * 30, vy: 0,
+      settled: false, bucket: serverBucket, multiplier
+    };
+    balls.push(ball);
+    return ball;
+  }
+
+  function animate(time) {
+    const dt = Math.min(0.033, (time - lastTime) / 1000 || 0.016);
+    lastTime = time;
+    updateAllBalls(dt);
+    renderFrame();
+    if (balls.some(ball => !ball.settled)) {
+      animationId = requestAnimationFrame(animate);
+    } else {
+      animationId = null;
+      const lastBall = balls[balls.length - 1];
+      if (lastBall && lastBall.multiplier !== undefined) {
+        const win = lastBall.multiplier >= 1;
+        const amount = Math.floor(Number(betInput.value || 10) * lastBall.multiplier);
+        resultEl.textContent = win
+          ? `🎉 Выигрыш: ${amount} ⭐ (${lastBall.multiplier}x)`
+          : `💔 Увы, ${amount} ⭐ (${lastBall.multiplier}x)`;
+        resultEl.classList.add('show');
+        resultEl.classList.toggle('win', win);
+        resultEl.classList.toggle('lose', !win);
+        setTimeout(() => resultEl.classList.remove('show'), 2600);
+        if (win) playWinSound(); else playTone(160, .2, .06);
+      }
+      dropping = false;
+      dropButton.disabled = false;
+      updateDropButton();
+    }
+  }
+
+  function updateAllBalls(dt) {
+    for (const ball of balls) {
+      if (!ball.settled) updateBall(ball, dt);
+    }
+    if (balls.length > 12) balls = balls.slice(-12);
+  }
+
+  function updateDropButton() {
+    const bet = Math.max(10, Number(betInput.value) || 10);
+    dropButton.textContent = `🎯 Бросить шарик за ${bet} ⭐`;
+  }
+
+  function setRisk(risk) {
+    currentRisk = risk;
+    riskButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.risk === risk));
+    drawBoard();
+  }
+
+  dropButton.onclick = async () => {
+    if (!profile) return toast('Подождите, профиль ещё загружается');
+    if (dropping) return;
+    const bet = Math.max(10, Math.floor(Number(betInput.value) || 10));
+    betInput.value = bet;
+    dropping = true;
+    dropButton.disabled = true;
+    resultEl.classList.remove('show');
+    try {
+      const data = await request('/api/plinko/drop', {
+        method: 'POST',
+        body: JSON.stringify({ bet, risk: currentRisk })
+      });
+      render({ first_name: profile.name }, data.profile);
+      currentBucket = data.bucket;
+      drawBoard();
+      dropBall(data.bucket, data.multiplier);
+      lastTime = performance.now();
+      if (animationId) cancelAnimationFrame(animationId);
+      animationId = requestAnimationFrame(animate);
+    } catch (error) {
+      toast(error.message);
+      dropping = false;
+      dropButton.disabled = false;
+      updateDropButton();
+    }
+  };
+
+  betInput.addEventListener('input', updateDropButton);
+  riskButtons.forEach(btn => btn.addEventListener('click', () => setRisk(btn.dataset.risk)));
+
+  canvas.addEventListener('click', event => {
+    const rect = canvas.getBoundingClientRect();
+    lastClickX = event.clientX - rect.left;
+  });
+
+  window.addEventListener('resize', () => { resizeCanvas(); drawBoard(); });
+
+  resizeCanvas();
+  drawBoard();
+  updateDropButton();
+}
+// ============================ КОНЕЦ ПЛИНКО ============================
+
+request('/api/me').then(x=>{ render(x.user,x.profile); return restoreRocketRound(); }).then(()=>initPlinko()).catch(e=>toast(e.message));
 request('/api/cases').then(cases=>cases.forEach(showCase)).catch(e=>toast(e.message));

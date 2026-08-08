@@ -594,6 +594,50 @@ app.get('/api/cases', (req, res) => {
   res.json(Object.entries(cases).map(([id, item]) => ({ id, ...item })));
 });
 
+// Настройки Плинко: у каждого уровня сложности свой набор множителей выигрыша.
+// Сумма всех значений = 100%, а произведение множителей с их вероятностями даёт
+// умеренный RTP в районе 0.9–0.95 — долгосрочно казино чуть в плюсе, игроку
+// хватает крупных редких выигрышей.
+const PLINKO_PAYOUTS = {
+  low:    [0.4, 0.6, 0.8, 1.1, 1.4, 1.6, 2.4, 4.0],
+  medium: [0.3, 0.5, 0.7, 1.0, 1.3, 1.7, 3.0, 6.0],
+  high:   [0.2, 0.4, 0.6, 0.9, 1.2, 1.8, 4.0, 12.0]
+};
+const PLINKO_MIN_BET = 10;
+const PLINKO_PROBABILITIES = [0.18, 0.22, 0.24, 0.14, 0.10, 0.06, 0.04, 0.02];
+function drawPlinkoBucket() {
+  const roll = crypto.randomInt(0, 1000) / 1000;
+  let cumulative = 0;
+  for (let index = 0; index < PLINKO_PROBABILITIES.length; index += 1) {
+    cumulative += PLINKO_PROBABILITIES[index];
+    if (roll < cumulative) return index;
+  }
+  return PLINKO_PROBABILITIES.length - 1;
+}
+app.post('/api/plinko/drop', async (req, res) => {
+  const tgUser = currentUser(req);
+  if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
+  const bet = Number(req.body?.bet);
+  const risk = ['low', 'medium', 'high'].includes(req.body?.risk) ? req.body.risk : 'low';
+  if (!Number.isInteger(bet) || bet < PLINKO_MIN_BET) {
+    return res.status(400).json({ error: `Минимальная ставка — ${PLINKO_MIN_BET} ⭐` });
+  }
+  const bucket = drawPlinkoBucket();
+  const multiplier = PLINKO_PAYOUTS[risk][bucket];
+  const payout = Math.floor(bet * multiplier);
+  let profile;
+  try { profile = await getProfile(tgUser); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
+  if ((Number(profile.caseStars) || 0) < bet) {
+    return res.status(400).json({ error: 'Недостаточно звёзд для ставки' });
+  }
+  profile.caseStars = (Number(profile.caseStars) || 0) - bet + payout;
+  profile.stars = profile.caseStars;
+  try { await saveUser(profile); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
+  res.json({ profile, bucket, multiplier: Number(multiplier.toFixed(2)), payout });
+});
+
 app.post('/api/rocket/start', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
