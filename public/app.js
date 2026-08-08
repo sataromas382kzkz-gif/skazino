@@ -579,7 +579,11 @@ function initPlinko() {
     // Серверный bucket — единственный источник результата. Не вычисляем
     // подсветку повторно по x: физическая анимация может попасть на границу
     // соседней визуальной зоны и показать неверный множитель.
-    const highlightBuckets = new Set(balls.map(ball => ball.bucket).filter(Number.isInteger));
+    // Не показываем серверный bucket заранее: это раскрывает результат ещё
+    // до падения шарика. Подсветка появляется только после приземления.
+    const highlightBuckets = new Set(
+      balls.filter(ball => ball.settled).map(ball => ball.bucket).filter(Number.isInteger)
+    );
     for (let i = 0; i < slotCount; i += 1) {
       const x = PADDING_X + slotWidth * i;
       const y = boardHeight - BOTTOM_MARGIN + 4;
