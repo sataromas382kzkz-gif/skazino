@@ -517,9 +517,9 @@ function initPlinko() {
   }
 
   const PAYOUT_LABELS = {
-    low:    [['0.4x','0.6x','0.8x','1.1x','1.4x','1.6x','2.4x','4.0x']],
-    medium: [['0.3x','0.5x','0.7x','1.0x','1.3x','1.7x','3.0x','6.0x']],
-    high:   [['0.2x','0.4x','0.6x','0.9x','1.2x','1.8x','4.0x','12x']]
+    low:    [['0.4x','0.6x','0.8x','1.1x','4.0x','2.4x','1.6x','1.1x']],
+    medium: [['0.3x','0.5x','0.7x','1.0x','6.0x','3.0x','1.7x','1.3x']],
+    high:   [['0.2x','0.4x','0.6x','0.9x','12x','4.0x','1.8x','1.2x']]
   };
   const PAYOUT_COLORS = {
     low:    ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
@@ -542,12 +542,17 @@ function initPlinko() {
 
   function pegPositions() {
     const positions = [];
+    // Ряды смещаются на полшага по очереди: визуально получается единая
+    // треугольная сетка Плинко, а не прямоугольная таблица точек.
     for (let row = 0; row < ROWS; row += 1) {
-      const count = ROWS - 1;
+      const offset = row % 2 ? colGap / 2 : 0;
+      const count = row % 2 ? ROWS - 2 : ROWS - 1;
       for (let col = 0; col <= count; col += 1) {
-        const x = PADDING_X + col * colGap;
+        const x = PADDING_X + offset + col * colGap;
         const y = TOP_Y + row * rowGap;
-        positions.push({ x, y });
+        if (x >= PADDING_X - pegRadius && x <= boardWidth - PADDING_X + pegRadius) {
+          positions.push({ x, y });
+        }
       }
     }
     return positions;
@@ -672,10 +677,12 @@ function initPlinko() {
     if (Number.isInteger(ball.bucket)) {
       const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
       ball.targetX = PADDING_X + slotWidth * (ball.bucket + 0.5);
-      if (ball.y > bottomY - rowGap * 1.8) {
+      // До нижней зоны шарик движется только по физике. Раньше постоянная
+      // коррекция vx начинала притягивать его к выигрышному слоту заранее,
+      // из-за чего было заметно, что траектория «знает» результат.
+      if (ball.y > bottomY - BALL_RADIUS * 2) {
         const distance = ball.targetX - ball.x;
-        ball.vx += distance * 18 * dt;
-        ball.vx = Math.max(-180, Math.min(180, ball.vx));
+        ball.x += Math.max(-distance * 0.35, Math.min(distance * 0.35, distance));
       }
     }
     if (ball.y >= bottomY) {
