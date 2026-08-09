@@ -490,7 +490,7 @@ function initPlinko() {
   const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
 
   const ROWS = 12;
-  const SLOT_COUNT = 8;
+  const SLOT_COUNT = 13;
   const PADDING_X = 20;
   const TOP_Y = 22;
   const BOTTOM_MARGIN = 34;
@@ -517,9 +517,9 @@ function initPlinko() {
   }
 
   const PAYOUT_LABELS = {
-    low:    [['0.4x','0.6x','0.8x','1.1x','4.0x','2.4x','1.6x','1.1x']],
-    medium: [['0.3x','0.5x','0.7x','1.0x','6.0x','3.0x','1.7x','1.3x']],
-    high:   [['0.2x','0.4x','0.6x','0.9x','12x','4.0x','1.8x','1.2x']]
+    low:    [['0.2x','0.3x','0.5x','0.7x','1.0x','1.5x','4.0x','1.5x','1.0x','0.7x','0.5x','0.3x','0.2x']],
+    medium: [['0.1x','0.2x','0.4x','0.6x','0.9x','1.5x','6.0x','1.5x','0.9x','0.6x','0.4x','0.2x','0.1x']],
+    high:   [['0.1x','0.2x','0.3x','0.5x','0.8x','1.5x','12x','1.5x','0.8x','0.5x','0.3x','0.2x','0.1x']]
   };
   const PAYOUT_COLORS = {
     low:    ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
@@ -536,23 +536,21 @@ function initPlinko() {
     canvas.height = boardHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
-    colGap = (boardWidth - PADDING_X * 2) / (ROWS - 1);
+    // 13 нижних слотов образуются 12 рядами треугольной сетки.
+    colGap = (boardWidth - PADDING_X * 2) / ROWS;
     pegRadius = Math.max(2.5, Math.min(4.5, colGap * 0.11));
   }
 
   function pegPositions() {
     const positions = [];
-    // Ряды смещаются на полшага по очереди: визуально получается единая
-    // треугольная сетка Плинко, а не прямоугольная таблица точек.
+    // Настоящая треугольная раскладка: сверху одна точка, затем 2, 3 и т.д.
+    // Нижний ряд содержит ROWS точек и формирует SLOT_COUNT = ROWS + 1 зон.
     for (let row = 0; row < ROWS; row += 1) {
-      const offset = row % 2 ? colGap / 2 : 0;
-      const count = row % 2 ? ROWS - 2 : ROWS - 1;
-      for (let col = 0; col <= count; col += 1) {
-        const x = PADDING_X + offset + col * colGap;
-        const y = TOP_Y + row * rowGap;
-        if (x >= PADDING_X - pegRadius && x <= boardWidth - PADDING_X + pegRadius) {
-          positions.push({ x, y });
-        }
+      const count = row + 1;
+      const width = (count - 1) * colGap;
+      const startX = boardWidth / 2 - width / 2;
+      for (let col = 0; col < count; col += 1) {
+        positions.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
       }
     }
     return positions;
@@ -592,7 +590,7 @@ function initPlinko() {
     for (let i = 0; i < slotCount; i += 1) {
       const x = PADDING_X + slotWidth * i;
       const y = boardHeight - BOTTOM_MARGIN + 4;
-      if (highlightBuckets.has(i)) {
+      if (highlightBuckets.has(i) && balls.some(ball => ball.settled && ball.actualBucket === i && ball.multiplier > 0)) {
         ctx.fillStyle = 'rgba(125,255,160,0.22)';
         ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
       }
@@ -677,17 +675,18 @@ function initPlinko() {
     if (Number.isInteger(ball.bucket)) {
       const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
       ball.targetX = PADDING_X + slotWidth * (ball.bucket + 0.5);
-      // До нижней зоны шарик движется только по физике. Раньше постоянная
-      // коррекция vx начинала притягивать его к выигрышному слоту заранее,
-      // из-за чего было заметно, что траектория «знает» результат.
-      if (ball.y > bottomY - BALL_RADIUS * 2) {
-        const distance = ball.targetX - ball.x;
-        ball.x += Math.max(-distance * 0.35, Math.min(distance * 0.35, distance));
-      }
     }
     if (ball.y >= bottomY) {
       ball.y = bottomY;
-      ball.x = Number.isFinite(ball.targetX) ? ball.targetX : ball.x;
+      const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
+      const actualBucket = bucketFromX(ball.x);
+      // Если физика вынесла шарик за пределы слота или он оказался между
+      // зонами, это проигрыш. Никогда не подменяем реальное место падения
+      // серверным результатом и не «телепортируем» шарик к выигрышу.
+      ball.actualBucket = ball.x >= PADDING_X && ball.x <= boardWidth - PADDING_X
+        ? actualBucket : -1;
+      ball.multiplier = ball.actualBucket === ball.bucket ? ball.multiplier : 0;
+      ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
       ball.vx = 0;
       ball.settled = true;
@@ -727,7 +726,9 @@ function initPlinko() {
       );
       const win = balance >= totalBet;
       const prefix = betCount === 1 ? 'Выигрыш' : 'Суммарный выигрыш';
-      const multipliers = balls.map(ball => `${Number(ball.multiplier).toFixed(2)}x`).join(', ');
+      const multipliers = balls.map(ball => ball.multiplier > 0
+        ? `${Number(ball.multiplier).toFixed(2)}x`
+        : 'проигрыш').join(', ');
       const multiplierText = betCount === 1
         ? multipliers
         : `${multipliers} · итого ${(balance / totalBet).toFixed(2)}x`;
