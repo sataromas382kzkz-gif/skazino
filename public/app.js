@@ -489,7 +489,9 @@ function initPlinko() {
   const resultEl = $('plinkoResult');
   const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
 
-  const ROWS = 12;
+  // Девять рядов достаточно для заметной траектории, но дают более быстрый
+  // раунд и меньше столкновений с штырьками.
+  const ROWS = 9;
   const SLOT_COUNT = 15;
   const PADDING_X = 34;
   const TOP_Y = 22;
@@ -536,19 +538,19 @@ function initPlinko() {
     canvas.height = boardHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
-    // 14 точек в нижнем ряду образуют 15 слотов. Шаг равен ширине слота,
-    // поэтому крайние зоны и коэффициенты точно совпадают.
-    colGap = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
-    pegRadius = Math.max(2.5, Math.min(4.5, colGap * 0.11));
+    // В нижнем ряду 14 точек образуют 15 слотов. Расстояние между точками
+    // считаем по 13 промежуткам, а не по ширине слота: так между шариком и
+    // соседними точками остаётся нормальный проход.
+    colGap = (boardWidth - PADDING_X * 2) / (ROWS + 4);
+    pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
   }
 
   function pegPositions() {
     const positions = [];
-    // Пирамида начинается с 3 точек, затем 4, 5 и далее.
-    // Нижний ряд содержит 14 точек и формирует 15 зон коэффициентов.
-    // Начинаем с трёх точек и постепенно расширяем пирамиду.
+    // Более короткая пирамида: начинаем с 6 точек и заканчиваем 14,
+    // сохраняя 15 конечных зон коэффициентов.
     for (let row = 0; row < ROWS; row += 1) {
-      const count = row + 3;
+      const count = row + 6;
       const width = (count - 1) * colGap;
       const startX = boardWidth / 2 - width / 2;
       for (let col = 0; col < count; col += 1) {
@@ -664,8 +666,10 @@ function initPlinko() {
         ball.x = peg.x + nx * minDist;
         ball.y = peg.y + ny * minDist;
         ball.vy *= -0.28;
-        ball.vx = nx * 40 + (Math.random() - 0.5) * 22;
-        ball.vy += 30;
+        // После контакта отталкиваем шарик мягче: при узком угле он не
+        // застревает между двумя соседними точками.
+        ball.vx = nx * 28 + (Math.random() - 0.5) * 16;
+        ball.vy += 24;
         playTone(500 + Math.random() * 300, 0.03, 0.018);
       }
     }
@@ -723,7 +727,7 @@ function initPlinko() {
       animationId = null;
       // Завершённая попытка: финальная подсветка уже отрисована drawBoard().
       drawBoard();
-        const bet = Math.max(10, Number(betInput.value) || 10);
+      const bet = Math.max(10, Number(betInput.value) || 10);
       const balance = balls.reduce(
         (sum, ball) => sum + Math.floor(bet * (ball.multiplier || 0)), 0
       );
