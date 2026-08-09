@@ -521,9 +521,9 @@ function initPlinko() {
   }
 
   const PAYOUT_LABELS = {
-    low:    [['0.3x','0.4x','0.6x','0.8x','1.2x','5.0x','1.2x','0.8x','0.6x','0.4x','0.3x']],
-    medium: [['0.3x','0.5x','0.7x','1.0x','1.5x','5.0x','1.5x','1.0x','0.7x','0.5x','0.3x']],
-    high:   [['0.3x','0.5x','0.8x','1.2x','2.0x','5.0x','2.0x','1.2x','0.8x','0.5x','0.3x']]
+    low:    [['0.2x','0.5x','1x','1.2x','1.5x','5x','1.5x','1.2x','1x','0.5x','0.2x']],
+    medium: [['0.2x','0.5x','1x','1.5x','2x','5x','2x','1.5x','1x','0.5x','0.2x']],
+    high:   [['0.2x','0.5x','1.2x','1.5x','2x','5x','2x','1.5x','1.2x','0.5x','0.2x']]
   };
   const PAYOUT_COLORS = {
     low:    ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff9f43','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8'],
@@ -598,12 +598,15 @@ function initPlinko() {
         ctx.fillStyle = 'rgba(125,255,160,0.22)';
         ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
       }
-      ctx.strokeStyle = 'rgba(100,120,220,0.14)';
-      ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      // Контрастная рамка визуально разделяет широкие слоты.
+      ctx.fillStyle = 'rgba(8, 13, 31, 0.82)';
+      ctx.fillRect(x + 1, y - 2, slotWidth - 2, BOTTOM_MARGIN - 2);
+      ctx.strokeStyle = 'rgba(170,190,255,0.42)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 1, y - 2, slotWidth - 2, BOTTOM_MARGIN - 2);
       ctx.fillStyle = colors[i];
-      // 11 слотов достаточно широкие, поэтому используем крупный шрифт
-      // и не обрезаем подписи коэффициентов.
-      ctx.font = `bold ${Math.max(12, Math.min(16, slotWidth * 0.34))}px Arial`;
+      // Крупный жирный шрифт с тенью делает коэффициенты чёткими.
+      ctx.font = `900 ${Math.max(13, Math.min(18, slotWidth * 0.42))}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.shadowColor = colors[i];
