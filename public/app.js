@@ -521,9 +521,6 @@ function initPlinko() {
   // Коэффициент и цвет определяются одним и тем же индексом слота.
   const PAYOUT_VALUES = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
   const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
-  // Проценты совпадают с серверным распределением PLINKO_PROBABILITIES.
-  const PAYOUT_PROBABILITIES = [0.04, 0.08, 0.12, 0.14, 0.11, 0.02, 0.11, 0.14, 0.12, 0.08, 0.04];
-  const PAYOUT_PERCENT_LABELS = PAYOUT_PROBABILITIES.map(value => `${value * 100}%`);
   const PAYOUT_COLORS_BY_VALUE = {
     '5': '#ff4d5e',
     '1.5': '#ff963d',
@@ -630,11 +627,8 @@ function initPlinko() {
       ctx.strokeText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
       ctx.shadowColor = colors[i];
       ctx.shadowBlur = 10;
-      ctx.fillText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 - 4);
+      ctx.fillText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
       ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(220,230,255,0.72)';
-      ctx.font = `700 ${Math.max(8, Math.min(11, slotWidth * 0.30))}px Arial`;
-      ctx.fillText(PAYOUT_PERCENT_LABELS[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 13);
     }
 
     const pegs = pegPositions();
