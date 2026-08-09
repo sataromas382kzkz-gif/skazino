@@ -618,9 +618,18 @@ function drawPlinkoBucket() {
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
 // через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
 function plinkoPayout(bet, bucket) {
-  const multiplier = Number(PLINKO_PAYOUTS[bucket]);
+  const safeBet = Number(bet);
+  const safeBucket = Number(bucket);
+  if (!Number.isInteger(safeBet) || safeBet < PLINKO_MIN_BET
+    || !Number.isInteger(safeBucket) || safeBucket < 0 || safeBucket >= PLINKO_PAYOUTS.length) {
+    throw new Error('Некорректная ставка или слот Плинко');
+  }
+  const multiplier = Number(PLINKO_PAYOUTS[safeBucket]);
   if (!Number.isFinite(multiplier)) throw new Error('Некорректный коэффициент Плинко');
-  return { multiplier, payout: Math.round(Number(bet) * multiplier) };
+  // Начисляем ровно ставку, умноженную на коэффициент. Для целой ставки и
+  // коэффициентов с одной десятичной это всегда целое число звёзд:
+  // 10×0.2=2, 10×0.5=5, 10×1.2=12, 10×1.5=15.
+  return { multiplier, payout: Math.round(safeBet * multiplier * 100) / 100 };
 }
 
 app.post('/api/plinko/drop', async (req, res) => {
@@ -645,6 +654,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
+  if (!Number.isFinite(totalPayout)) throw new Error('Некорректная выплата Плинко');
   let profile;
   try {
     profile = await getProfile(tgUser);

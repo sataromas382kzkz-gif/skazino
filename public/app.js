@@ -510,6 +510,7 @@ function initPlinko() {
   let animationId = null;
   let lastTime = 0;
   let pendingProfile = null;
+  let pendingTotalPayout = 0;
 
   // Коэффициент и цвет определяются одним и тем же индексом слота.
   const PAYOUT_VALUES = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
@@ -696,8 +697,12 @@ function initPlinko() {
     if (ball.y >= bottomY) {
       ball.y = bottomY;
       // Результат и выплата по-прежнему принадлежат серверному bucket.
-      // Координата не телепортируется в центр слота при приземлении.
+      // В последний момент фиксируем шарик в центре его слота. Пока шарик
+      // проходит точки, к нему нет никакого притягивания, поэтому визуальная
+      // траектория остаётся естественной, а коэффициент и выплата совпадают.
+      const slotWidth = boardWidth / SLOT_COUNT;
       ball.actualBucket = ball.bucket;
+      ball.x = slotWidth * (ball.bucket + 0.5);
       ball.multiplier = Number(ball.multiplier) || 0;
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
@@ -743,9 +748,11 @@ function initPlinko() {
       // Выплата приходит с сервера и уже рассчитана по тому же bucket.
       // Нельзя пересчитывать её через локальный input: при нескольких шариках
       // или изменении ставки во время раунда это давало неверный итог.
-      const balance = balls.reduce((sum, ball) => sum + (Number.isFinite(ball.payout) ? ball.payout : 0), 0);
-      // Выплата каждого шарика уже рассчитана сервером по его bucket и
-      // коэффициенту. Показываем только общую сумму начисления.
+      // Используем сумму, которую подтвердил сервер. Она уже рассчитана по
+      // каждому bucket и не зависит от округления/повторного расчёта клиента.
+      // totalPayout — единственный источник итоговой выплаты. Не используем
+      // старую сумму предыдущего броска и не пересчитываем её по анимации.
+      const balance = pendingTotalPayout;
       resultEl.textContent = `Выигрыш: +${balance} ⭐`;
       resultEl.classList.add('show');
       resultEl.classList.add('win');
@@ -795,6 +802,7 @@ function initPlinko() {
     requestsDone = false;
     dropButton.disabled = true;
     resultEl.classList.remove('show');
+    pendingTotalPayout = 0;
     // Новая попытка: убираем шарики предыдущей попытки с доски.
     balls = [];
     if (animationId) cancelAnimationFrame(animationId);
@@ -810,6 +818,13 @@ function initPlinko() {
         body: JSON.stringify({ bet, count: ballsToDrop })
       });
       lastProfile = data.profile;
+      if (!Array.isArray(data.results) || data.results.length !== ballsToDrop
+        || !Number.isFinite(Number(data.totalPayout))) {
+        throw Error('Сервер вернул некорректный результат Плинко');
+      }
+      // Сервер возвращает итоговую сумму отдельно — сохраняем её для показа
+      // и не даём клиентской анимации повлиять на начисление.
+      pendingTotalPayout = Number(data.totalPayout) || 0;
       pendingProfile = lastProfile;
       // Запускаем анимацию до добавления шариков и выпускаем их с интервалом.
       // Так шарики не появляются и не падают одновременно.
@@ -830,6 +845,7 @@ function initPlinko() {
       requestsDone = true;
       dropping = false;
       pendingProfile = null;
+      pendingTotalPayout = 0;
       if (animationId) cancelAnimationFrame(animationId);
       animationId = null;
       balls = [];
