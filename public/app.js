@@ -489,10 +489,10 @@ function initPlinko() {
   const resultEl = $('plinkoResult');
   const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
 
-  // Девять рядов достаточно для заметной траектории, но дают более быстрый
-  // раунд и меньше столкновений с штырьками.
-  const ROWS = 9;
-  const SLOT_COUNT = 15;
+  // Пирамида начинается с 3 точек и заканчивается 10 точками.
+  // Восемь рядов делают поле компактным и ускоряют игровой процесс.
+  const ROWS = 8;
+  const SLOT_COUNT = 11;
   const PADDING_X = 34;
   const TOP_Y = 22;
   const BOTTOM_MARGIN = 34;
@@ -519,14 +519,14 @@ function initPlinko() {
   }
 
   const PAYOUT_LABELS = {
-    low:    [['0.2x','0.25x','0.3x','0.4x','0.5x','0.7x','1.0x','1.5x','4.0x','1.5x','1.0x','0.7x','0.5x','0.3x','0.2x']],
-    medium: [['0.1x','0.15x','0.2x','0.3x','0.4x','0.6x','0.9x','1.5x','6.0x','1.5x','0.9x','0.6x','0.4x','0.2x','0.1x']],
-    high:   [['0.1x','0.15x','0.2x','0.25x','0.3x','0.5x','0.8x','1.5x','12x','1.5x','0.8x','0.5x','0.3x','0.2x','0.1x']]
+    low:    [['0.3x','0.4x','0.6x','0.8x','1.2x','5.0x','1.2x','0.8x','0.6x','0.4x','0.3x']],
+    medium: [['0.3x','0.5x','0.7x','1.0x','1.5x','5.0x','1.5x','1.0x','0.7x','0.5x','0.3x']],
+    high:   [['0.3x','0.5x','0.8x','1.2x','2.0x','5.0x','2.0x','1.2x','0.8x','0.5x','0.3x']]
   };
   const PAYOUT_COLORS = {
-    low:    ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#aab3d0','#6ee7a0','#7ae0a8','#ffd35c','#ffa94d','#ffd35c','#7ae0a8','#6ee7a0','#aab3d0','#929bc0','#8a93b8'],
-    medium: ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#aab3d0','#6ee7a0','#7ae0a8','#ffd35c','#ffa94d','#ffd35c','#7ae0a8','#6ee7a0','#aab3d0','#929bc0','#8a93b8'],
-    high:   ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#aab3d0','#6ee7a0','#7ae0a8','#ffd35c','#ff8f4d','#ffd35c','#7ae0a8','#6ee7a0','#aab3d0','#929bc0','#8a93b8']
+    low:    ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff9f43','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8'],
+    medium: ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff9f43','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8'],
+    high:   ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff7b39','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8']
   };
 
   function resizeCanvas() {
@@ -538,19 +538,17 @@ function initPlinko() {
     canvas.height = boardHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
-    // В нижнем ряду 14 точек образуют 15 слотов. Расстояние между точками
-    // считаем по 13 промежуткам, а не по ширине слота: так между шариком и
-    // соседними точками остаётся нормальный проход.
-    colGap = (boardWidth - PADDING_X * 2) / (ROWS + 4);
+    // В нижнем ряду 10 точек образуют 11 широких слотов. Точки занимают
+    // всю ширину игрового поля с девятью равными промежутками.
+    colGap = (boardWidth - PADDING_X * 2) / (ROWS + 1);
     pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
   }
 
   function pegPositions() {
     const positions = [];
-    // Более короткая пирамида: начинаем с 6 точек и заканчиваем 14,
-    // сохраняя 15 конечных зон коэффициентов.
+    // Каждый следующий ряд шире на одну точку: 3, 4, 5 ... 10.
     for (let row = 0; row < ROWS; row += 1) {
-      const count = row + 6;
+      const count = row + 3;
       const width = (count - 1) * colGap;
       const startX = boardWidth / 2 - width / 2;
       for (let col = 0; col < count; col += 1) {
