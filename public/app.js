@@ -757,7 +757,7 @@ function initPlinko() {
       const balance = balls.reduce((sum, ball) => sum + (Number.isFinite(ball.payout) ? ball.payout : 0), 0);
       // Выплата каждого шарика уже рассчитана сервером по его bucket и
       // коэффициенту. Показываем только общую сумму начисления.
-      resultEl.textContent = `Общая выплата: +${balance} ⭐`;
+      resultEl.textContent = `Выигрыш: +${balance} ⭐`;
       resultEl.classList.add('show');
       resultEl.classList.add('win');
       resultEl.classList.remove('lose');
