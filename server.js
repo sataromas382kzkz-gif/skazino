@@ -605,6 +605,10 @@ const PLINKO_MIN_BET = 10;
 // Для симметричных боковых слотов вероятность каждого коэффициента
 // разделена поровну между левой и правой сторонами. Сумма — 100%.
 const PLINKO_PROBABILITIES = [0.105, 0.10, 0.10, 0.11, 0.075, 0.02, 0.075, 0.11, 0.10, 0.10, 0.105];
+// Очередь нужна локальному файловому хранилищу: параллельные броски не должны
+// перезаписывать баланс результатом, рассчитанным по устаревшему профилю.
+let plinkoLocalQueue = Promise.resolve();
+
 function drawPlinkoBucket() {
   const roll = crypto.randomInt(0, 1000) / 1000;
   let cumulative = 0;
@@ -654,17 +658,58 @@ app.post('/api/plinko/drop', async (req, res) => {
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
+  // Повторно проверяем каждую строку перед изменением баланса. Это защищает от
+  // рассинхронизации bucket/multiplier/payout при изменении таблицы коэффициентов.
+  for (const result of results) {
+    const expected = plinkoPayout(bet, result.bucket);
+    if (result.multiplier !== expected.multiplier || result.payout !== expected.payout) {
+      throw new Error('Несоответствие коэффициента и выплаты Плинко');
+    }
+  }
   if (!Number.isFinite(totalPayout)) throw new Error('Некорректная выплата Плинко');
   let profile;
   try {
-    profile = await getProfile(tgUser);
-    if ((Number(profile.caseStars) || 0) < totalStake) {
-      return res.status(400).json({ error: 'Недостаточно звёзд для ставки' });
+    await getProfile(tgUser); // создаёт профиль и выполняет миграции
+    const userId = String(tgUser.id);
+    if (databaseMode === 'postgres') {
+      // Нельзя делать getProfile → изменение → saveUser: два одновременных
+      // броска прочитают один баланс, а последний UPDATE затрёт начисление
+      // первого. Блокировка строки делает списание и выплату атомарными.
+      const client = await db.connect();
+      try {
+        await client.sql`BEGIN`;
+        const locked = await client.sql`SELECT profile FROM users WHERE id = ${userId} FOR UPDATE`;
+        profile = locked.rows[0]?.profile;
+        if (!profile) throw new Error('Профиль не найден');
+        const balance = Number(profile.caseStars) || 0;
+        if (balance < totalStake) throw new Error('Недостаточно звёзд для ставки');
+        profile.caseStars = balance - totalStake + totalPayout;
+        profile.stars = profile.caseStars;
+        await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
+        await client.sql`COMMIT`;
+      } catch (error) {
+        await client.sql`ROLLBACK`;
+        throw error;
+      } finally { client.release(); }
+      profiles[userId] = profile;
+    } else {
+      // Локальный режим однопоточный, но очередь всё равно защищает от
+      // параллельных HTTP-запросов, пришедших до завершения записи файла.
+      const previous = plinkoLocalQueue;
+      let release;
+      plinkoLocalQueue = new Promise(resolve => { release = resolve; });
+      await previous;
+      try {
+        profile = await getProfile(tgUser);
+        const balance = Number(profile.caseStars) || 0;
+        if (balance < totalStake) throw new Error('Недостаточно звёзд для ставки');
+        profile.caseStars = balance - totalStake + totalPayout;
+        profile.stars = profile.caseStars;
+        await saveUser(profile);
+      } finally { release(); }
     }
-    profile.caseStars = (Number(profile.caseStars) || 0) - totalStake + totalPayout;
-    profile.stars = profile.caseStars;
-    await saveUser(profile);
   } catch (error) {
+    if (error.message === 'Недостаточно звёзд для ставки') return res.status(400).json({ error: error.message });
     console.error(error);
     return res.status(503).json({ error: 'Не удалось сохранить результат Плинко' });
   }
