@@ -704,7 +704,10 @@ function initPlinko() {
       // Граница между слотами всегда относится к левому (меньшему) слоту.
       // Поэтому шарик не ставится ровно на границу и визуальный центр не может
       // ошибочно выглядеть как соседний коэффициент.
-      ball.targetX = slotWidth * (ball.bucket + 0.48);
+      ball.targetX = ball.boundary
+        ? slotWidth * (ball.boundary.boundaryIndex + 1)
+          + (ball.boundary.selectedSide === 'left' ? -1.5 : 1.5)
+        : slotWidth * (ball.bucket + 0.48);
       // Плавно направляем шарик к серверному слоту, чтобы анимация и выплата
       // всегда соответствовали одному и тому же коэффициенту.
       ball.vx += Math.max(-180, Math.min(180, (ball.targetX - ball.x) * 2.4)) * dt;
@@ -725,12 +728,12 @@ function initPlinko() {
     }
   }
 
-  function dropBall(bucket, multiplier, payout) {
+  function dropBall(bucket, multiplier, payout, boundary = null) {
     // Каждый шарик стартует сверху со своей случайной горизонтальной позиции.
     const x = PADDING_X + Math.random() * (boardWidth - PADDING_X * 2);
     const ball = {
       x, y: TOP_Y, vx: (Math.random() - 0.5) * 30, vy: 0,
-      settled: false, bucket: Number(bucket), multiplier, payout: Number(payout)
+      settled: false, bucket: Number(bucket), multiplier, payout: Number(payout), boundary
     };
     balls.push(ball);
     return ball;
@@ -828,7 +831,7 @@ function initPlinko() {
       animationId = requestAnimationFrame(animate);
       for (const [index, result] of data.results.entries()) {
         if (index > 0) await new Promise(resolve => setTimeout(resolve, 360));
-        dropBall(result.bucket, result.multiplier, result.payout);
+        dropBall(result.bucket, result.multiplier, result.payout, result.boundary);
       }
       // Ждём, пока последний шарик долетит: после этого animate сам разблокирует
       // кнопку и обновит баланс через render().
