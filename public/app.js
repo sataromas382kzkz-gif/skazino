@@ -493,11 +493,10 @@ function initPlinko() {
   // Восемь рядов делают поле компактным и ускоряют игровой процесс.
   const ROWS = 8;
   const SLOT_COUNT = 11;
-  const PADDING_X = 34;
+  const PADDING_X = 30;
   const TOP_Y = 22;
-  // Увеличенная зона слотов: коэффициенты остаются хорошо читаемыми
-  // даже на узком экране Telegram.
-  const BOTTOM_MARGIN = 52;
+  // Ещё более высокая зона слотов: крупные коэффициенты читаются без зума.
+  const BOTTOM_MARGIN = 66;
   const BALL_RADIUS = 7;
   let pegRadius = 3.5;
   let rowGap = 0;
@@ -513,6 +512,7 @@ function initPlinko() {
   let lastClickX = 0;
   let animationId = null;
   let lastTime = 0;
+  let pendingProfile = null;
 
   function bucketFromX(x) {
     const clamped = Math.max(PADDING_X, Math.min(boardWidth - PADDING_X, x));
@@ -595,22 +595,37 @@ function initPlinko() {
       const x = PADDING_X + slotWidth * i;
       const y = boardHeight - BOTTOM_MARGIN + 4;
       if (highlightBuckets.has(i) && balls.some(ball => ball.settled && ball.actualBucket === i && ball.multiplier > 0)) {
-        ctx.fillStyle = 'rgba(125,255,160,0.22)';
+        ctx.fillStyle = 'rgba(100,255,130,0.28)';
         ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+        // Яркая верхняя полоса подсвечивает выигравший слот.
+        ctx.fillStyle = 'rgba(100,255,130,0.7)';
+        ctx.fillRect(x + 2, y - 2, slotWidth - 4, 3);
       }
       // Контрастная рамка визуально разделяет широкие слоты.
-      ctx.fillStyle = 'rgba(8, 13, 31, 0.82)';
+      ctx.fillStyle = 'rgba(5, 9, 22, 0.88)';
       ctx.fillRect(x + 1, y - 2, slotWidth - 2, BOTTOM_MARGIN - 2);
-      ctx.strokeStyle = 'rgba(170,190,255,0.42)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(150,170,255,0.50)';
+      ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y - 2, slotWidth - 2, BOTTOM_MARGIN - 2);
+      // Верхняя акцентная линия делает слот ещё заметнее.
+      ctx.strokeStyle = colors[i];
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 4, y - 1);
+      ctx.lineTo(x + slotWidth - 4, y - 1);
+      ctx.stroke();
       ctx.fillStyle = colors[i];
-      // Крупный жирный шрифт с тенью делает коэффициенты чёткими.
-      ctx.font = `900 ${Math.max(13, Math.min(18, slotWidth * 0.42))}px Arial`;
+      // Крупный жирный шрифт с двойной тенью для максимальной чёткости.
+      const fontSize = Math.max(15, Math.min(22, slotWidth * 0.48));
+      ctx.font = `900 ${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      // Тёмный контур текста — гарантия читаемости на любом фоне.
+      ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
       ctx.shadowColor = colors[i];
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 12;
       ctx.fillText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
       ctx.shadowBlur = 0;
     }
@@ -744,6 +759,11 @@ function initPlinko() {
       resultEl.classList.remove('lose');
       setTimeout(() => resultEl.classList.remove('show'), 2600);
       playWinSound();
+      // Теперь обновляем баланс: все шарики уже долетели, анимация завершена.
+      if (pendingProfile) {
+        render({ first_name: profile.name }, pendingProfile);
+        pendingProfile = null;
+      }
       // После показа результата полностью очищаем сцену. Иначе settled-шары
       // могли сохраниться и попасть в следующую попытку.
       dropping = false;
@@ -798,6 +818,7 @@ function initPlinko() {
     animationId = null;
     renderFrame();
     const ballsToDrop = currentBalls;
+    let lastProfile = null;
     try {
       // Отправляем по одному запросу на шарик; сервер сам списывает bet и
       // начисляет выигрыш. Каждый шарик падает со случайной позиции сверху.
@@ -806,15 +827,19 @@ function initPlinko() {
           method: 'POST',
           body: JSON.stringify({ bet, risk: currentRisk })
         });
-        render({ first_name: profile.name }, data.profile);
+        // Не обновляем баланс после каждого шарика: баланс обновится
+        // только после завершения анимации всех шариков.
+        lastProfile = data.profile;
         dropBall(data.bucket, data.multiplier);
         if (!animationId) {
           lastTime = performance.now();
           animationId = requestAnimationFrame(animate);
         }
       }
-      // Ждём, пока все шарики долетят: после этого animate сам разблокирует кнопку.
+      // Ждём, пока все шарики долетят: после этого animate сам разблокирует кнопку
+      // и обновит баланс через render().
       requestsDone = true;
+      pendingProfile = lastProfile;
     } catch (error) {
       // При ошибке одного из запросов останавливаем текущую анимацию и
       // очищаем уже полученные шарики. Иначе requestsDone остаётся false,
@@ -822,6 +847,7 @@ function initPlinko() {
       // попытка видна при следующем броске.
       requestsDone = true;
       dropping = false;
+      pendingProfile = null;
       if (animationId) cancelAnimationFrame(animationId);
       animationId = null;
       balls = [];
