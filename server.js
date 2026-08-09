@@ -273,6 +273,43 @@ async function saveUser(profile) {
   if (databaseMode === 'local') await writeLocalProfiles();
 }
 
+// Единый механизм изменения профиля. Любое начисление/списание проходит через
+// него: в PostgreSQL строка пользователя блокируется внутри транзакции, а в
+// локальном режиме запросы выстраиваются в очередь. Это исключает потерю
+// начислений при двойном тапе и параллельных запросах.
+let profileMutationQueue = Promise.resolve();
+async function mutateProfile(tgUser, mutator) {
+  await getProfile(tgUser);
+  const userId = String(tgUser.id);
+  if (databaseMode === 'postgres') {
+    const client = await db.connect();
+    try {
+      await client.sql`BEGIN`;
+      const result = await client.sql`SELECT profile FROM users WHERE id = ${userId} FOR UPDATE`;
+      const profile = result.rows[0]?.profile;
+      if (!profile) throw new Error('Профиль не найден');
+      const response = await mutator(profile);
+      await client.sql`UPDATE users SET profile = ${JSON.stringify(profile)}::jsonb, updated_at = NOW() WHERE id = ${userId}`;
+      await client.sql`COMMIT`;
+      profiles[userId] = profile;
+      return { profile, response };
+    } catch (error) {
+      await client.sql`ROLLBACK`;
+      throw error;
+    } finally { client.release(); }
+  }
+  const previous = profileMutationQueue;
+  let release;
+  profileMutationQueue = new Promise(resolve => { release = resolve; });
+  await previous;
+  try {
+    const profile = await getProfile(tgUser);
+    const response = await mutator(profile);
+    await saveUser(profile);
+    return { profile, response };
+  } finally { release(); }
+}
+
 async function getProfile(tgUser) {
   const id = String(tgUser.id);
   await ensureDatabaseReady();
@@ -658,6 +695,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
+  // Суммируем выплаты по каждому шару без округления промежуточного общего результата.
   // Повторно проверяем каждую строку перед изменением баланса. Это защищает от
   // рассинхронизации bucket/multiplier/payout при изменении таблицы коэффициентов.
   for (const result of results) {
@@ -849,15 +887,14 @@ app.post('/api/profile/topup', async (req, res) => {
 app.post('/api/profile/promo', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
-  let profile;
-  try { profile = await getProfile(tgUser); }
-  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   const code = String(req.body?.code || '').trim().toUpperCase();
   if (!code) return res.status(400).json({ error: 'Введите промокод' });
-  if (profile.usedPromoCodes?.includes(code)) return res.status(400).json({ error: 'Промокод уже использован' });
   const promo = await getPromoAmount(code);
   if (promo === null) return res.status(400).json({ error: 'Промокод не найден' });
   if (!Number.isInteger(promo) || promo <= 0) return res.status(500).json({ error: 'Промокод настроен неправильно' });
+  let profile;
+  try { profile = await getProfile(tgUser); }
+  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
   try {
     if (!await claimPromoCode(code, profile.id)) {
       return res.status(400).json({ error: 'Промокод уже использован другим аккаунтом' });
@@ -866,6 +903,7 @@ app.post('/api/profile/promo', async (req, res) => {
     console.error(error);
     return res.status(503).json({ error: 'Не удалось проверить промокод' });
   }
+  if (profile.usedPromoCodes?.includes(code)) return res.status(400).json({ error: 'Промокод уже использован' });
   profile.caseStars += promo;
   profile.stars = profile.caseStars;
   profile.usedPromoCodes = [...(profile.usedPromoCodes || []), code];
