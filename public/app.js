@@ -495,8 +495,8 @@ function initPlinko() {
   const SLOT_COUNT = 11;
   const PADDING_X = 30;
   const TOP_Y = 22;
-  // Ещё более высокая зона слотов: крупные коэффициенты читаются без зума.
-  const BOTTOM_MARGIN = 66;
+  // Компактная зона слотов: 50 px высота, слоты заполняют всю ширину без зазоров.
+  const BOTTOM_MARGIN = 50;
   const BALL_RADIUS = 7;
   let pegRadius = 3.5;
   let rowGap = 0;
@@ -515,8 +515,8 @@ function initPlinko() {
   let pendingProfile = null;
 
   function bucketFromX(x) {
-    const clamped = Math.max(PADDING_X, Math.min(boardWidth - PADDING_X, x));
-    const index = Math.floor((clamped - PADDING_X) / ((boardWidth - PADDING_X * 2) / SLOT_COUNT));
+    const clamped = Math.max(0, Math.min(boardWidth, x));
+    const index = Math.floor(clamped / (boardWidth / SLOT_COUNT));
     return Math.max(0, Math.min(SLOT_COUNT - 1, index));
   }
 
@@ -582,7 +582,8 @@ function initPlinko() {
     const labels = PAYOUT_LABELS[currentRisk][0];
     const colors = PAYOUT_COLORS[currentRisk];
     const slotCount = SLOT_COUNT;
-    const slotWidth = (boardWidth - PADDING_X * 2) / slotCount;
+    // Слоты заполняют всю ширину канваса без полей и зазоров.
+    const slotWidth = boardWidth / slotCount;
     // Серверный bucket — единственный источник результата. Не вычисляем
     // подсветку повторно по x: физическая анимация может попасть на границу
     // соседней визуальной зоны и показать неверный множитель.
@@ -592,40 +593,38 @@ function initPlinko() {
       balls.filter(ball => ball.settled).map(ball => ball.bucket).filter(Number.isInteger)
     );
     for (let i = 0; i < slotCount; i += 1) {
-      const x = PADDING_X + slotWidth * i;
+      const x = slotWidth * i;
       const y = boardHeight - BOTTOM_MARGIN + 4;
       if (highlightBuckets.has(i) && balls.some(ball => ball.settled && ball.actualBucket === i && ball.multiplier > 0)) {
         ctx.fillStyle = 'rgba(100,255,130,0.28)';
         ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
-        // Яркая верхняя полоса подсвечивает выигравший слот.
         ctx.fillStyle = 'rgba(100,255,130,0.7)';
         ctx.fillRect(x + 2, y - 2, slotWidth - 4, 3);
       }
-      // Контрастная рамка визуально разделяет широкие слоты.
-      ctx.fillStyle = 'rgba(5, 9, 22, 0.88)';
-      ctx.fillRect(x + 1, y - 2, slotWidth - 2, BOTTOM_MARGIN - 2);
-      ctx.strokeStyle = 'rgba(150,170,255,0.50)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y - 2, slotWidth - 2, BOTTOM_MARGIN - 2);
-      // Верхняя акцентная линия делает слот ещё заметнее.
+      // Компактный слот: тёмный фон, чёткая рамка, яркая полоса сверху.
+      ctx.fillStyle = 'rgba(5, 9, 22, 0.92)';
+      ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      ctx.strokeStyle = 'rgba(150,170,255,0.45)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
       ctx.strokeStyle = colors[i];
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(x + 4, y - 1);
-      ctx.lineTo(x + slotWidth - 4, y - 1);
+      ctx.moveTo(x + 2, y - 1);
+      ctx.lineTo(x + slotWidth - 2, y - 1);
       ctx.stroke();
       ctx.fillStyle = colors[i];
-      // Крупный жирный шрифт с двойной тенью для максимальной чёткости.
-      const fontSize = Math.max(15, Math.min(22, slotWidth * 0.48));
+      // Шрифт подбирается автоматически: крупный на широких слотах,
+      // уменьшается на узких, чтобы текст не вылезал за рамки.
+      const fontSize = Math.max(11, Math.min(16, slotWidth * 0.46));
       ctx.font = `900 ${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      // Тёмный контур текста — гарантия читаемости на любом фоне.
-      ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 2.5;
       ctx.strokeText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
       ctx.shadowColor = colors[i];
-      ctx.shadowBlur = 12;
+      ctx.shadowBlur = 10;
       ctx.fillText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
       ctx.shadowBlur = 0;
     }
@@ -699,8 +698,8 @@ function initPlinko() {
     // именно этого слота, чтобы визуальное место падения не расходилось с
     // фактическим коэффициентом из ответа API.
     if (Number.isInteger(ball.bucket)) {
-      const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
-      ball.targetX = PADDING_X + slotWidth * (ball.bucket + 0.5);
+      const slotWidth = boardWidth / SLOT_COUNT;
+      ball.targetX = slotWidth * (ball.bucket + 0.5);
       // Плавно направляем шарик к серверному слоту, чтобы анимация и выплата
       // всегда соответствовали одному и тому же коэффициенту.
       ball.vx += Math.max(-180, Math.min(180, (ball.targetX - ball.x) * 2.4)) * dt;
@@ -708,12 +707,9 @@ function initPlinko() {
     }
     if (ball.y >= bottomY) {
       ball.y = bottomY;
-      const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
-      // Результат уже определён сервером и выплата зачислена в профиле.
-      // Поэтому визуальное приземление всегда завершается в том же слоте:
-      // расхождение физики с сервером не превращается в ложный нулевой выигрыш.
+      const slotWidth = boardWidth / SLOT_COUNT;
       ball.actualBucket = ball.bucket;
-      ball.x = PADDING_X + slotWidth * (ball.bucket + 0.5);
+      ball.x = slotWidth * (ball.bucket + 0.5);
       ball.multiplier = Number(ball.multiplier) || 0;
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
