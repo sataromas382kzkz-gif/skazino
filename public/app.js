@@ -522,7 +522,7 @@ function initPlinko() {
   const PAYOUT_VALUES = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
   const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
   const PAYOUT_COLORS_BY_VALUE = {
-    '5': '#49e878',
+    '5': '#ff4d5e',
     '1.5': '#ff963d',
     '1.2': '#ffd84d',
     '1': '#49e878',
@@ -720,12 +720,12 @@ function initPlinko() {
     }
   }
 
-  function dropBall(bucket, multiplier) {
+  function dropBall(bucket, multiplier, payout) {
     // Каждый шарик стартует сверху со своей случайной горизонтальной позиции.
     const x = PADDING_X + Math.random() * (boardWidth - PADDING_X * 2);
     const ball = {
       x, y: TOP_Y, vx: (Math.random() - 0.5) * 30, vy: 0,
-      settled: false, bucket: Number(bucket), multiplier
+      settled: false, bucket: Number(bucket), multiplier, payout: Number(payout)
     };
     balls.push(ball);
     return ball;
@@ -746,9 +746,10 @@ function initPlinko() {
       // Завершённая попытка: финальная подсветка уже отрисована drawBoard().
       drawBoard();
       const bet = Math.max(10, Number(betInput.value) || 10);
-      const balance = balls.reduce(
-        (sum, ball) => sum + Math.floor(bet * (ball.multiplier || 0)), 0
-      );
+      // Выплата приходит с сервера и уже рассчитана по тому же bucket.
+      // Нельзя пересчитывать её через локальный input: при нескольких шариках
+      // или изменении ставки во время раунда это давало неверный итог.
+      const balance = balls.reduce((sum, ball) => sum + (Number.isFinite(ball.payout) ? ball.payout : 0), 0);
       // Показываем только понятный итог раунда, без коэффициентов и лишнего
       // технического текста: игроку важны статус и полученные звёзды.
       resultEl.textContent = `Выигрыш: +${balance} ⭐`;
@@ -818,7 +819,8 @@ function initPlinko() {
         // Не обновляем баланс после каждого шарика: баланс обновится
         // только после завершения анимации всех шариков.
         lastProfile = data.profile;
-        dropBall(data.bucket, data.multiplier);
+        // Сохраняем именно серверную выплату, а не пересчитываем её позже.
+        dropBall(data.bucket, data.multiplier, data.payout);
         if (!animationId) {
           lastTime = performance.now();
           animationId = requestAnimationFrame(animate);
