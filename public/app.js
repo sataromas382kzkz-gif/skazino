@@ -490,8 +490,8 @@ function initPlinko() {
   const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
 
   const ROWS = 12;
-  const SLOT_COUNT = 13;
-  const PADDING_X = 20;
+  const SLOT_COUNT = 15;
+  const PADDING_X = 34;
   const TOP_Y = 22;
   const BOTTOM_MARGIN = 34;
   const BALL_RADIUS = 7;
@@ -517,14 +517,14 @@ function initPlinko() {
   }
 
   const PAYOUT_LABELS = {
-    low:    [['0.2x','0.3x','0.5x','0.7x','1.0x','1.5x','4.0x','1.5x','1.0x','0.7x','0.5x','0.3x','0.2x']],
-    medium: [['0.1x','0.2x','0.4x','0.6x','0.9x','1.5x','6.0x','1.5x','0.9x','0.6x','0.4x','0.2x','0.1x']],
-    high:   [['0.1x','0.2x','0.3x','0.5x','0.8x','1.5x','12x','1.5x','0.8x','0.5x','0.3x','0.2x','0.1x']]
+    low:    [['0.2x','0.25x','0.3x','0.4x','0.5x','0.7x','1.0x','1.5x','4.0x','1.5x','1.0x','0.7x','0.5x','0.3x','0.2x']],
+    medium: [['0.1x','0.15x','0.2x','0.3x','0.4x','0.6x','0.9x','1.5x','6.0x','1.5x','0.9x','0.6x','0.4x','0.2x','0.1x']],
+    high:   [['0.1x','0.15x','0.2x','0.25x','0.3x','0.5x','0.8x','1.5x','12x','1.5x','0.8x','0.5x','0.3x','0.2x','0.1x']]
   };
   const PAYOUT_COLORS = {
-    low:    ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
-    medium: ['#8a93b8', '#9aa3c4', '#aab3d0', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b'],
-    high:   ['#8a93b8', '#9aa3c4', '#6ee7a0', '#7ae0a8', '#ffd35c', '#ffa94d', '#ff6b6b', '#ff5b5b']
+    low:    ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#aab3d0','#6ee7a0','#7ae0a8','#ffd35c','#ffa94d','#ffd35c','#7ae0a8','#6ee7a0','#aab3d0','#929bc0','#8a93b8'],
+    medium: ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#aab3d0','#6ee7a0','#7ae0a8','#ffd35c','#ffa94d','#ffd35c','#7ae0a8','#6ee7a0','#aab3d0','#929bc0','#8a93b8'],
+    high:   ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#aab3d0','#6ee7a0','#7ae0a8','#ffd35c','#ff8f4d','#ffd35c','#7ae0a8','#6ee7a0','#aab3d0','#929bc0','#8a93b8']
   };
 
   function resizeCanvas() {
@@ -536,17 +536,19 @@ function initPlinko() {
     canvas.height = boardHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
-    // 13 нижних слотов образуются 12 рядами треугольной сетки.
-    colGap = (boardWidth - PADDING_X * 2) / ROWS;
+    // 14 точек в нижнем ряду образуют 15 слотов. Шаг равен ширине слота,
+    // поэтому крайние зоны и коэффициенты точно совпадают.
+    colGap = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
     pegRadius = Math.max(2.5, Math.min(4.5, colGap * 0.11));
   }
 
   function pegPositions() {
     const positions = [];
-    // Настоящая треугольная раскладка: сверху одна точка, затем 2, 3 и т.д.
-    // Нижний ряд содержит ROWS точек и формирует SLOT_COUNT = ROWS + 1 зон.
+    // Пирамида начинается с 3 точек, затем 4, 5 и далее.
+    // Нижний ряд содержит 14 точек и формирует 15 зон коэффициентов.
+    // Начинаем с трёх точек и постепенно расширяем пирамиду.
     for (let row = 0; row < ROWS; row += 1) {
-      const count = row + 1;
+      const count = row + 3;
       const width = (count - 1) * colGap;
       const startX = boardWidth / 2 - width / 2;
       for (let col = 0; col < count; col += 1) {
@@ -675,17 +677,20 @@ function initPlinko() {
     if (Number.isInteger(ball.bucket)) {
       const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
       ball.targetX = PADDING_X + slotWidth * (ball.bucket + 0.5);
+      // Плавно направляем шарик к серверному слоту, чтобы анимация и выплата
+      // всегда соответствовали одному и тому же коэффициенту.
+      ball.vx += Math.max(-180, Math.min(180, (ball.targetX - ball.x) * 2.4)) * dt;
+      ball.vx *= 0.985;
     }
     if (ball.y >= bottomY) {
       ball.y = bottomY;
       const slotWidth = (boardWidth - PADDING_X * 2) / SLOT_COUNT;
-      const actualBucket = bucketFromX(ball.x);
-      // Если физика вынесла шарик за пределы слота или он оказался между
-      // зонами, это проигрыш. Никогда не подменяем реальное место падения
-      // серверным результатом и не «телепортируем» шарик к выигрышу.
-      ball.actualBucket = ball.x >= PADDING_X && ball.x <= boardWidth - PADDING_X
-        ? actualBucket : -1;
-      ball.multiplier = ball.actualBucket === ball.bucket ? ball.multiplier : 0;
+      // Результат уже определён сервером и выплата зачислена в профиле.
+      // Поэтому визуальное приземление всегда завершается в том же слоте:
+      // расхождение физики с сервером не превращается в ложный нулевой выигрыш.
+      ball.actualBucket = ball.bucket;
+      ball.x = PADDING_X + slotWidth * (ball.bucket + 0.5);
+      ball.multiplier = Number(ball.multiplier) || 0;
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
       ball.vx = 0;
@@ -718,23 +723,18 @@ function initPlinko() {
       animationId = null;
       // Завершённая попытка: финальная подсветка уже отрисована drawBoard().
       drawBoard();
-      const bet = Math.max(10, Number(betInput.value) || 10);
-      const betCount = balls.length;
-      const totalBet = bet * betCount;
+        const bet = Math.max(10, Number(betInput.value) || 10);
       const balance = balls.reduce(
         (sum, ball) => sum + Math.floor(bet * (ball.multiplier || 0)), 0
       );
-      const win = balance >= totalBet;
       // Показываем только понятный итог раунда, без коэффициентов и лишнего
       // технического текста: игроку важны статус и полученные звёзды.
-      resultEl.textContent = win
-        ? `Выигрыш: +${balance} ⭐`
-        : `Проигрыш: 0 ⭐`;
+      resultEl.textContent = `Выигрыш: +${balance} ⭐`;
       resultEl.classList.add('show');
-      resultEl.classList.toggle('win', win);
-      resultEl.classList.toggle('lose', !win);
+      resultEl.classList.add('win');
+      resultEl.classList.remove('lose');
       setTimeout(() => resultEl.classList.remove('show'), 2600);
-      if (win) playWinSound(); else playTone(160, .2, .06);
+      playWinSound();
       // После показа результата полностью очищаем сцену. Иначе settled-шары
       // могли сохраниться и попасть в следующую попытку.
       dropping = false;

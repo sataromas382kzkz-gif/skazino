@@ -45,12 +45,12 @@
 .plinko-card{border:1px solid #394878;border-radius:20px;padding:14px;background:linear-gradient(145deg,#202b50,#151c30);box-shadow:0 8px 24px #05081266}
 .plinko-balance{margin-bottom:12px;padding:10px 12px;border:1px solid #4a5b8c;border-radius:12px;background:#111a33;color:#bfc9ee;font-size:12px}
 .plinko-balance b{float:right;color:#ffda67}
-.plinko-board-container{position:relative;width:100%;border:1px solid #4a5b9a;border-radius:18px;overflow:hidden;background:linear-gradient(180deg,#0d1225,#151f3a 40%,#1a2544 100%);margin-bottom:12px}
+.plinko-board-container{position:relative;width:100%;border:0;border-radius:18px;overflow:hidden;background:linear-gradient(180deg,#0d1225,#151f3a 40%,#1a2544 100%);margin-bottom:12px}
 .plinko-canvas{display:block;width:100%;height:auto}
 .plinko-result{position:absolute;bottom:0;left:0;right:0;text-align:center;padding:14px 10px;font-size:20px;font-weight:bold;color:#fff;text-shadow:0 0 12px #ffda67,0 2px 8px #0008;pointer-events:none;opacity:0;transition:opacity .3s}
 .plinko-result.show{opacity:1}
 .plinko-result.win{color:#7ff4a0;text-shadow:0 0 16px #7ff4a0,0 2px 8px #0008}
-.plinko-result.lose{color:#ff745f;text-shadow:0 0 16px #ff745f,0 2px 8px #0008}
+.plinko-result.lose{color:#7ff4a0;text-shadow:0 0 16px #7ff4a0,0 2px 8px #0008}
 .plinko-controls{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
 .plinko-bet-row label{color:#bbc4df;font-size:11px;display:block}
 .plinko-bet-row input{display:block;width:100%;margin-top:5px;padding:11px;border:1px solid #3f4c7b;border-radius:10px;background:#10172b;color:#fff;font-size:15px;outline:none}
