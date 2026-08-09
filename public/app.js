@@ -516,7 +516,7 @@ function initPlinko() {
   // Та же таблица, что и на сервере: значения в десятых долях исключают
   // подмену 0.2/0.5 или ошибки округления при отображении результата.
   // Таблица совпадает с серверной: индекс слота -> коэффициент.
-  const PAYOUT_TENTHS = [2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2];
+  const PAYOUT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
   const PAYOUT_VALUES = PAYOUT_TENTHS.map(value => value / 10);
   const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
   const PAYOUT_COLORS_BY_VALUE = {
@@ -831,10 +831,25 @@ function initPlinko() {
         || !Number.isFinite(Number(data.totalPayout))) {
         throw Error('Сервер вернул некорректный результат Плинко');
       }
-      // Сервер возвращает итоговую сумму отдельно — сохраняем её для показа
-      // и не даём клиентской анимации повлиять на начисление.
-      // Не используем fallback `||`: нулевая/дробная выплата — валидный результат.
-      pendingTotalPayout = Number(data.totalPayout);
+      // Проверяем каждый результат против ставки и таблицы коэффициентов.
+      // Так старый кешированный клиент или подмена bucket не сможет показать
+      // 10 вместо 12 для 1.2x либо 15 вместо 2 для 0.2x.
+      const expectedPayout = result => {
+        const tenths = PAYOUT_TENTHS[Number(result.bucket)];
+        const multiplier = Number(result.multiplier);
+        const payout = Number(result.payout);
+        if (!Number.isInteger(tenths)
+          || multiplier !== tenths / 10
+          || payout !== Math.floor(bet * tenths / 10)) {
+          throw Error('Сервер вернул несоответствующий коэффициент Плинко');
+        }
+        return payout;
+      };
+      const checkedTotalPayout = data.results.reduce((sum, result) => sum + expectedPayout(result), 0);
+      if (Number(data.totalPayout) !== checkedTotalPayout) {
+        throw Error('Сервер вернул несоответствующую общую выплату Плинко');
+      }
+      pendingTotalPayout = checkedTotalPayout;
       if (!Number.isFinite(pendingTotalPayout)) throw Error('Сервер вернул некорректную выплату');
       pendingProfile = lastProfile;
       // Запускаем анимацию до добавления шариков и выпускаем их с интервалом.

@@ -17,8 +17,9 @@ export function plinkoResult(bet, bucket) {
     bucket: slot,
     coefficientTenths,
     multiplier: coefficientTenths / 10,
-    // Возвращаемая сумма = ставка × коэффициент. Только целые операции.
-    payout: Math.floor((stake * coefficientTenths) / 10)
+    // Возвращаемая сумма = ставка × коэффициент. Считаем в десятых,
+    // чтобы 10 × 1.2 давало ровно 12, а 10 × 0.2 — ровно 2.
+    payout: Math.floor(stake * coefficientTenths / 10)
   };
 }
 
