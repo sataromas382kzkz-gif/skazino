@@ -615,10 +615,6 @@ function drawPlinkoBucket() {
   return PLINKO_PROBABILITIES.length - 1;
 }
 
-function drawPlinkoResult() {
-  const bucket = drawPlinkoBucket();
-  return { bucket, boundary: null };
-}
 app.post('/api/plinko/drop', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });

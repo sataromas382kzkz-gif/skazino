@@ -507,16 +507,9 @@ function initPlinko() {
   let dropping = false;
   let requestsDone = false;
   let balls = [];
-  let lastClickX = 0;
   let animationId = null;
   let lastTime = 0;
   let pendingProfile = null;
-
-  function bucketFromX(x) {
-    const clamped = Math.max(0, Math.min(boardWidth, x));
-    const index = Math.floor(clamped / (boardWidth / SLOT_COUNT));
-    return Math.max(0, Math.min(SLOT_COUNT - 1, index));
-  }
 
   // Коэффициент и цвет определяются одним и тем же индексом слота.
   const PAYOUT_VALUES = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
@@ -696,33 +689,14 @@ function initPlinko() {
     }
 
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    // Сервер заранее определяет выигрышный bucket. Направляем шарик в центр
-    // именно этого слота, чтобы визуальное место падения не расходилось с
-    // фактическим коэффициентом из ответа API.
-    if (Number.isInteger(ball.bucket)) {
-      const slotWidth = boardWidth / SLOT_COUNT;
-      // Граница между слотами всегда относится к левому (меньшему) слоту.
-      // Поэтому шарик не ставится ровно на границу и визуальный центр не может
-      // ошибочно выглядеть как соседний коэффициент.
-      // Шарик всегда направляется в центр слота, выбранного сервером.
-      // Так визуальная позиция падения точно совпадает с начисляемым коэффициентом.
-      ball.targetX = slotWidth * (ball.bucket + 0.5);
-      // Серверный bucket является источником результата. Подводим шарик к
-      // центру именно этого слота, чтобы он не пересекал визуально соседний.
-      const distanceToTarget = ball.targetX - ball.x;
-      ball.vx += Math.max(-260, Math.min(260, distanceToTarget * 8)) * dt;
-      ball.vx *= 0.94;
-      // В нижней зоне уже не даём физике увести шарик в соседний слот.
-      if (ball.y >= bottomY - 28) {
-        ball.x += (ball.targetX - ball.x) * Math.min(1, dt * 14);
-      }
-    }
     if (ball.y >= bottomY) {
       ball.y = bottomY;
       const slotWidth = boardWidth / SLOT_COUNT;
-      ball.actualBucket = ball.bucket;
-      const centerX = slotWidth * (ball.bucket + 0.5);
-      ball.x = centerX;
+      // Результат и выплата относятся к одному серверному bucket. Шарик
+      // уже был запущен в его зоне, поэтому здесь только фиксируем фактический
+      // слот по координате, без принудительного притягивания к цели.
+      ball.actualBucket = Math.max(0, Math.min(SLOT_COUNT - 1,
+        Math.floor(ball.x / slotWidth)));
       ball.multiplier = Number(ball.multiplier) || 0;
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
@@ -732,11 +706,16 @@ function initPlinko() {
   }
 
   function dropBall(bucket, multiplier, payout) {
-    // Каждый шарик стартует сверху со своей случайной горизонтальной позиции.
-    const x = PADDING_X + Math.random() * (boardWidth - PADDING_X * 2);
+    // Сервер выбирает bucket до запуска. Стартуем уже в его верхней зоне,
+    // поэтому во время полёта не требуется резко притягивать шарик к финишу.
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
+    const centerX = slotWidth * (bucketIndex + 0.5);
+    const x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS,
+      centerX + (Math.random() - 0.5) * slotWidth * 0.28));
     const ball = {
-      x, y: TOP_Y, vx: (Math.random() - 0.5) * 30, vy: 0,
-      settled: false, bucket: Number(bucket), multiplier, payout: Number(payout)
+      x, y: TOP_Y, vx: (Math.random() - 0.5) * 22, vy: 0,
+      settled: false, bucket: bucketIndex, multiplier, payout: Number(payout)
     };
     balls.push(ball);
     return ball;
@@ -756,7 +735,6 @@ function initPlinko() {
       animationId = null;
       // Завершённая попытка: финальная подсветка уже отрисована drawBoard().
       drawBoard();
-      const bet = Math.max(10, Number(betInput.value) || 10);
       // Выплата приходит с сервера и уже рассчитана по тому же bucket.
       // Нельзя пересчитывать её через локальный input: при нескольких шариках
       // или изменении ставки во время раунда это давало неверный итог.
@@ -861,11 +839,6 @@ function initPlinko() {
   ballsButtons.forEach(btn => btn.addEventListener('click', () => {
     if (!dropping) setBallsCount(btn.dataset.balls);
   }));
-
-  canvas.addEventListener('click', event => {
-    const rect = canvas.getBoundingClientRect();
-    lastClickX = event.clientX - rect.left;
-  });
 
   window.addEventListener('resize', () => { resizeCanvas(); drawBoard(); });
 
