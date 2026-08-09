@@ -46,7 +46,7 @@
 .plinko-balance{margin-bottom:12px;padding:10px 12px;border:1px solid #4a5b8c;border-radius:12px;background:#111a33;color:#bfc9ee;font-size:12px}
 .plinko-balance b{float:right;color:#ffda67}
 .plinko-board-container{position:relative;width:100%;border:0;border-radius:18px;overflow:hidden;background:linear-gradient(180deg,#0d1225,#151f3a 40%,#1a2544 100%);margin-bottom:12px}
-.plinko-canvas{display:block;width:100%;height:auto}
+.plinko-canvas{display:block;width:100%;height:410px}
 .plinko-result{position:absolute;bottom:0;left:0;right:0;text-align:center;padding:14px 10px;font-size:20px;font-weight:bold;color:#fff;text-shadow:0 0 12px #ffda67,0 2px 8px #0008;pointer-events:none;opacity:0;transition:opacity .3s}
 .plinko-result.show{opacity:1}
 .plinko-result.win{color:#7ff4a0;text-shadow:0 0 16px #7ff4a0,0 2px 8px #0008}

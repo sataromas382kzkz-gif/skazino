@@ -495,7 +495,9 @@ function initPlinko() {
   const SLOT_COUNT = 11;
   const PADDING_X = 34;
   const TOP_Y = 22;
-  const BOTTOM_MARGIN = 34;
+  // Увеличенная зона слотов: коэффициенты остаются хорошо читаемыми
+  // даже на узком экране Telegram.
+  const BOTTOM_MARGIN = 52;
   const BALL_RADIUS = 7;
   let pegRadius = 3.5;
   let rowGap = 0;
@@ -599,7 +601,9 @@ function initPlinko() {
       ctx.strokeStyle = 'rgba(100,120,220,0.14)';
       ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
       ctx.fillStyle = colors[i];
-      ctx.font = `bold ${Math.max(9, Math.min(12, slotWidth * 0.2))}px Arial`;
+      // 11 слотов достаточно широкие, поэтому используем крупный шрифт
+      // и не обрезаем подписи коэффициентов.
+      ctx.font = `bold ${Math.max(12, Math.min(16, slotWidth * 0.34))}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.shadowColor = colors[i];
