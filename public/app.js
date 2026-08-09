@@ -725,16 +725,11 @@ function initPlinko() {
         (sum, ball) => sum + Math.floor(bet * (ball.multiplier || 0)), 0
       );
       const win = balance >= totalBet;
-      const prefix = betCount === 1 ? 'Выигрыш' : 'Суммарный выигрыш';
-      const multipliers = balls.map(ball => ball.multiplier > 0
-        ? `${Number(ball.multiplier).toFixed(2)}x`
-        : 'проигрыш').join(', ');
-      const multiplierText = betCount === 1
-        ? multipliers
-        : `${multipliers} · итого ${(balance / totalBet).toFixed(2)}x`;
+      // Показываем только понятный итог раунда, без коэффициентов и лишнего
+      // технического текста: игроку важны статус и полученные звёзды.
       resultEl.textContent = win
-        ? `🎉 ${prefix}: ${balance} ⭐ (${multiplierText})`
-        : `💔 ${prefix}: ${balance} ⭐ (${multiplierText})`;
+        ? `Выигрыш: +${balance} ⭐`
+        : `Проигрыш: 0 ⭐`;
       resultEl.classList.add('show');
       resultEl.classList.toggle('win', win);
       resultEl.classList.toggle('lose', !win);
