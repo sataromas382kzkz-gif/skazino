@@ -718,15 +718,19 @@ function initPlinko() {
   }
 
   function dropBall(bucket, multiplier, payout) {
-    // Сервер выбирает bucket до запуска. Стартуем уже в его верхней зоне,
-    // поэтому во время полёта не требуется резко притягивать шарик к финишу.
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    const centerX = slotWidth * (bucketIndex + 0.5);
+    // Каждый шарик появляется над центром поля — в диапазоне первых трёх
+    // точек (первый ряд: 3, 4 и 5). Результат bucket уже выбран сервером,
+    // но стартовая позиция не зависит от него: поэтому шарик с 0.2x не
+    // возникает сразу над своим финальным слотом и действительно проходит
+    // всю пирамиду с заданными шансами.
+    const firstRow = pegPositions().slice(0, 3);
+    const leftPoint = firstRow[0]?.x ?? boardWidth / 2 - colGap;
+    const rightPoint = firstRow.at(-1)?.x ?? boardWidth / 2 + colGap;
     const x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS,
-      centerX + (Math.random() - 0.5) * slotWidth * 0.28));
+      leftPoint + Math.random() * (rightPoint - leftPoint)));
+    const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
     const ball = {
-      x, y: TOP_Y, vx: (Math.random() - 0.5) * 22, vy: 0,
+      x, y: TOP_Y - Math.max(18, rowGap * 0.55), vx: (Math.random() - 0.5) * 22, vy: 0,
       settled: false, bucket: bucketIndex, multiplier, payout: Number(payout)
     };
     balls.push(ball);
