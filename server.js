@@ -615,6 +615,14 @@ function drawPlinkoBucket() {
   return PLINKO_PROBABILITIES.length - 1;
 }
 
+// Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
+// через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
+function plinkoPayout(bet, bucket) {
+  const multiplier = Number(PLINKO_PAYOUTS[bucket]);
+  if (!Number.isFinite(multiplier)) throw new Error('Некорректный коэффициент Плинко');
+  return { multiplier, payout: Math.round(Number(bet) * multiplier) };
+}
+
 app.post('/api/plinko/drop', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
@@ -630,10 +638,10 @@ app.post('/api/plinko/drop', async (req, res) => {
   // не могут смешаться между шариками.
   const results = Array.from({ length: count }, () => {
     const bucket = drawPlinkoBucket();
-    const multiplier = Number(PLINKO_PAYOUTS[bucket]);
-    // Округляем каждый возврат до целой звезды, чтобы дробная часть не
-    // терялась всегда в пользу системы.
-    return { bucket, multiplier, payout: Math.round(bet * multiplier) };
+    const { multiplier, payout } = plinkoPayout(bet, bucket);
+    // Округляем только итог до целой звезды: 10 × 1.2 = 12,
+    // 10 × 1.5 = 15.
+    return { bucket, multiplier, payout };
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
