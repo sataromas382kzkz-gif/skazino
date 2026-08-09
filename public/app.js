@@ -618,7 +618,7 @@ function initPlinko() {
       ctx.fillStyle = colors[i];
       // Шрифт подбирается автоматически: крупный на широких слотах,
       // уменьшается на узких, чтобы текст не вылезал за рамки.
-      const fontSize = Math.max(11, Math.min(16, slotWidth * 0.46));
+      const fontSize = Math.max(10, Math.min(14, slotWidth * 0.40));
       ctx.font = `900 ${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -701,7 +701,10 @@ function initPlinko() {
     // фактическим коэффициентом из ответа API.
     if (Number.isInteger(ball.bucket)) {
       const slotWidth = boardWidth / SLOT_COUNT;
-      ball.targetX = slotWidth * (ball.bucket + 0.5);
+      // Граница между слотами всегда относится к левому (меньшему) слоту.
+      // Поэтому шарик не ставится ровно на границу и визуальный центр не может
+      // ошибочно выглядеть как соседний коэффициент.
+      ball.targetX = slotWidth * (ball.bucket + 0.48);
       // Плавно направляем шарик к серверному слоту, чтобы анимация и выплата
       // всегда соответствовали одному и тому же коэффициенту.
       ball.vx += Math.max(-180, Math.min(180, (ball.targetX - ball.x) * 2.4)) * dt;
@@ -711,7 +714,9 @@ function initPlinko() {
       ball.y = bottomY;
       const slotWidth = boardWidth / SLOT_COUNT;
       ball.actualBucket = ball.bucket;
-      ball.x = slotWidth * (ball.bucket + 0.5);
+      // При попадании точно на границу выбираем слот слева — меньший из двух.
+      const centerX = slotWidth * (ball.bucket + 0.5);
+      ball.x = Math.min(centerX - 0.5, slotWidth * (ball.bucket + 0.5));
       ball.multiplier = Number(ball.multiplier) || 0;
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
@@ -816,17 +821,18 @@ function initPlinko() {
         body: JSON.stringify({ bet, count: ballsToDrop })
       });
       lastProfile = data.profile;
-      for (const result of data.results) {
+      pendingProfile = lastProfile;
+      // Запускаем анимацию до добавления шариков и выпускаем их с интервалом.
+      // Так шарики не появляются и не падают одновременно.
+      lastTime = performance.now();
+      animationId = requestAnimationFrame(animate);
+      for (const [index, result] of data.results.entries()) {
+        if (index > 0) await new Promise(resolve => setTimeout(resolve, 360));
         dropBall(result.bucket, result.multiplier, result.payout);
       }
-      if (!animationId) {
-        lastTime = performance.now();
-        animationId = requestAnimationFrame(animate);
-      }
-      // Ждём, пока все шарики долетят: после этого animate сам разблокирует кнопку
-      // и обновит баланс через render().
+      // Ждём, пока последний шарик долетит: после этого animate сам разблокирует
+      // кнопку и обновит баланс через render().
       requestsDone = true;
-      pendingProfile = lastProfile;
     } catch (error) {
       // При ошибке одного из запросов останавливаем текущую анимацию и
       // очищаем уже полученные шарики. Иначе requestsDone остаётся false,
