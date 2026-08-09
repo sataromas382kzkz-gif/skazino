@@ -10,6 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 import { promoCodes } from './promo-codes.js';
+import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, plinkoResult } from './plinko.js';
 
 const ADMIN_TELEGRAM_ID = '5310549412';
 const adminStates = new Map();
@@ -637,9 +638,8 @@ app.get('/api/cases', (req, res) => {
 // 8 рядов дают 11 конечных слотов, коэффициенты симметричны относительно центра.
 // Коэффициенты слотов хранятся в десятых долях, чтобы расчёт не зависел
 // от погрешности IEEE-754: 12 * 10 / 10 всегда даёт 12, а не 11.999...
-const PLINKO_PAYOUT_TENTHS = [2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2];
+const PLINKO_PAYOUT_TENTHS = PLINKO_COEFFICIENT_TENTHS;
 const PLINKO_PAYOUTS = PLINKO_PAYOUT_TENTHS.map(value => value / 10);
-const PLINKO_MIN_BET = 10;
 // Вероятности итоговых коэффициентов: 0.2x — 21%, 0.5x — 20%,
 // 1.0x — 20%, 1.2x — 22%, 1.5x — 15%, 5.0x — 2%.
 // Для симметричных боковых слотов вероятность каждого коэффициента
@@ -662,20 +662,7 @@ function drawPlinkoBucket() {
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
 // через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
 function plinkoPayout(bet, bucket) {
-  const safeBet = Number(bet);
-  const safeBucket = Number(bucket);
-  if (!Number.isInteger(safeBet) || safeBet < PLINKO_MIN_BET
-    || !Number.isInteger(safeBucket) || safeBucket < 0 || safeBucket >= PLINKO_PAYOUTS.length) {
-    throw new Error('Некорректная ставка или слот Плинко');
-  }
-  const payoutTenths = PLINKO_PAYOUT_TENTHS[safeBucket];
-  if (!Number.isInteger(payoutTenths)) throw new Error('Некорректный коэффициент Плинко');
-  const multiplier = payoutTenths / 10;
-  // Выплата — ставка × коэффициент. Не используем fallback вроде `|| bet`:
-  // коэффициенты 0.2x/0.5x являются корректными и не должны заменяться
-  // ставкой или предыдущим результатом. Сохраняем две цифры после запятой.
-  const payout = Math.round(safeBet * payoutTenths) / 10;
-  return { multiplier, payout };
+  return plinkoResult(bet, bucket);
 }
 
 app.post('/api/plinko/drop', async (req, res) => {
@@ -696,7 +683,7 @@ app.post('/api/plinko/drop', async (req, res) => {
     const { multiplier, payout } = plinkoPayout(bet, bucket);
     // Округляем только итог до целой звезды: 10 × 1.2 = 12,
     // 10 × 1.5 = 15.
-    return { bucket, multiplier, payout };
+    return { bucket, multiplier, payout, coefficientTenths: Math.round(multiplier * 10) };
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);

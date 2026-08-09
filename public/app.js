@@ -515,6 +515,7 @@ function initPlinko() {
   // Коэффициент и цвет определяются одним и тем же индексом слота.
   // Та же таблица, что и на сервере: значения в десятых долях исключают
   // подмену 0.2/0.5 или ошибки округления при отображении результата.
+  // Таблица совпадает с серверной: индекс слота -> коэффициент.
   const PAYOUT_TENTHS = [2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2];
   const PAYOUT_VALUES = PAYOUT_TENTHS.map(value => value / 10);
   const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
@@ -710,6 +711,8 @@ function initPlinko() {
       // 1.2x и 1.5x не должны заменяться значением по умолчанию.
       ball.multiplier = Number(ball.multiplier);
       ball.payout = Number(ball.payout);
+      // Выплата приходит с сервера и показывается именно для этого шарика.
+      // Визуальная анимация не пересчитывает её по позиции canvas.
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
       ball.vx = 0;
@@ -830,7 +833,9 @@ function initPlinko() {
       }
       // Сервер возвращает итоговую сумму отдельно — сохраняем её для показа
       // и не даём клиентской анимации повлиять на начисление.
-      pendingTotalPayout = Number(data.totalPayout) || 0;
+      // Не используем fallback `||`: нулевая/дробная выплата — валидный результат.
+      pendingTotalPayout = Number(data.totalPayout);
+      if (!Number.isFinite(pendingTotalPayout)) throw Error('Сервер вернул некорректную выплату');
       pendingProfile = lastProfile;
       // Запускаем анимацию до добавления шариков и выпускаем их с интервалом.
       // Так шарики не появляются и не падают одновременно.

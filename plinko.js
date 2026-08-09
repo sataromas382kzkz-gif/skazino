@@ -1,0 +1,29 @@
+// Единая бизнес-логика Плинко для сервера и тестов.
+// Коэффициент хранится в десятых долях: 2 = 0.2x, 12 = 1.2x.
+export const PLINKO_MIN_BET = 10;
+export const PLINKO_COEFFICIENT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
+
+export function plinkoResult(bet, bucket) {
+  const stake = Number(bet);
+  const slot = Number(bucket);
+  if (!Number.isSafeInteger(stake) || stake < PLINKO_MIN_BET) {
+    throw new Error('Некорректная ставка Плинко');
+  }
+  if (!Number.isInteger(slot) || slot < 0 || slot >= PLINKO_COEFFICIENT_TENTHS.length) {
+    throw new Error('Некорректный слот Плинко');
+  }
+  const coefficientTenths = PLINKO_COEFFICIENT_TENTHS[slot];
+  return {
+    bucket: slot,
+    coefficientTenths,
+    multiplier: coefficientTenths / 10,
+    // Возвращаемая сумма = ставка × коэффициент. Только целые операции.
+    payout: Math.floor((stake * coefficientTenths) / 10)
+  };
+}
+
+export function plinkoTable() {
+  return PLINKO_COEFFICIENT_TENTHS.map((tenths, bucket) => ({
+    bucket, coefficientTenths: tenths, multiplier: tenths / 10
+  }));
+}
