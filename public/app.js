@@ -707,10 +707,15 @@ function initPlinko() {
       // Шарик всегда направляется в центр слота, выбранного сервером.
       // Так визуальная позиция падения точно совпадает с начисляемым коэффициентом.
       ball.targetX = slotWidth * (ball.bucket + 0.5);
-      // Плавно направляем шарик к серверному слоту, чтобы анимация и выплата
-      // всегда соответствовали одному и тому же коэффициенту.
-      ball.vx += Math.max(-180, Math.min(180, (ball.targetX - ball.x) * 2.4)) * dt;
-      ball.vx *= 0.985;
+      // Серверный bucket является источником результата. Подводим шарик к
+      // центру именно этого слота, чтобы он не пересекал визуально соседний.
+      const distanceToTarget = ball.targetX - ball.x;
+      ball.vx += Math.max(-260, Math.min(260, distanceToTarget * 8)) * dt;
+      ball.vx *= 0.94;
+      // В нижней зоне уже не даём физике увести шарик в соседний слот.
+      if (ball.y >= bottomY - 28) {
+        ball.x += (ball.targetX - ball.x) * Math.min(1, dt * 14);
+      }
     }
     if (ball.y >= bottomY) {
       ball.y = bottomY;
