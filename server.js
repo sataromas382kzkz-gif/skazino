@@ -616,20 +616,8 @@ function drawPlinkoBucket() {
 }
 
 function drawPlinkoResult() {
-  const initialBucket = drawPlinkoBucket();
-  // Иногда шарик оказывается ровно на границе двух соседних слотов.
-  // Сервер выбирает сторону криптографически случайно: 50% левый слот,
-  // 50% правый. Для крайнего правого слота граница недоступна.
-  const isBoundary = initialBucket < PLINKO_PAYOUTS.length - 1
-    && crypto.randomInt(0, 4) === 0;
-  if (!isBoundary) return { bucket: initialBucket, boundary: null };
-  const leftBucket = initialBucket;
-  const rightBucket = initialBucket + 1;
-  const boundaryIndex = initialBucket;
-  const boundary = crypto.randomInt(0, 2) === 0
-    ? { leftBucket, rightBucket, boundaryIndex, selectedSide: 'left' }
-    : { leftBucket, rightBucket, boundaryIndex, selectedSide: 'right' };
-  return { bucket: boundary.selectedSide === 'left' ? leftBucket : rightBucket, boundary };
+  const bucket = drawPlinkoBucket();
+  return { bucket, boundary: null };
 }
 app.post('/api/plinko/drop', async (req, res) => {
   const tgUser = currentUser(req);
@@ -645,12 +633,11 @@ app.post('/api/plinko/drop', async (req, res) => {
   // Весь пакет обрабатывается одной операцией, поэтому ставка и начисление
   // не могут смешаться между шариками.
   const results = Array.from({ length: count }, () => {
-    const result = drawPlinkoResult();
-    const bucket = result.bucket;
+    const bucket = drawPlinkoBucket();
     const multiplier = Number(PLINKO_PAYOUTS[bucket]);
     // Округляем каждый возврат до целой звезды, чтобы дробная часть не
     // терялась всегда в пользу системы.
-    return { bucket, multiplier, payout: Math.round(bet * multiplier), boundary: result.boundary };
+    return { bucket, multiplier, payout: Math.round(bet * multiplier) };
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
