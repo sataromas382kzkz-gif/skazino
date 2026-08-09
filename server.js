@@ -635,7 +635,10 @@ app.get('/api/cases', (req, res) => {
 // броска один и тот же набор коэффициентов. Индекс слота — единственный
 // источник и для отображаемого результата, и для расчёта выплаты.
 // 8 рядов дают 11 конечных слотов, коэффициенты симметричны относительно центра.
-const PLINKO_PAYOUTS = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
+// Коэффициенты слотов хранятся в десятых долях, чтобы расчёт не зависел
+// от погрешности IEEE-754: 12 * 10 / 10 всегда даёт 12, а не 11.999...
+const PLINKO_PAYOUT_TENTHS = [2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2];
+const PLINKO_PAYOUTS = PLINKO_PAYOUT_TENTHS.map(value => value / 10);
 const PLINKO_MIN_BET = 10;
 // Вероятности итоговых коэффициентов: 0.2x — 21%, 0.5x — 20%,
 // 1.0x — 20%, 1.2x — 22%, 1.5x — 15%, 5.0x — 2%.
@@ -665,12 +668,14 @@ function plinkoPayout(bet, bucket) {
     || !Number.isInteger(safeBucket) || safeBucket < 0 || safeBucket >= PLINKO_PAYOUTS.length) {
     throw new Error('Некорректная ставка или слот Плинко');
   }
-  const multiplier = Number(PLINKO_PAYOUTS[safeBucket]);
-  if (!Number.isFinite(multiplier)) throw new Error('Некорректный коэффициент Плинко');
-  // Начисляем ровно ставку, умноженную на коэффициент. Для целой ставки и
-  // коэффициентов с одной десятичной это всегда целое число звёзд:
-  // 10×0.2=2, 10×0.5=5, 10×1.2=12, 10×1.5=15.
-  return { multiplier, payout: Math.round(safeBet * multiplier * 100) / 100 };
+  const payoutTenths = PLINKO_PAYOUT_TENTHS[safeBucket];
+  if (!Number.isInteger(payoutTenths)) throw new Error('Некорректный коэффициент Плинко');
+  const multiplier = payoutTenths / 10;
+  // Выплата — ставка × коэффициент. Не используем fallback вроде `|| bet`:
+  // коэффициенты 0.2x/0.5x являются корректными и не должны заменяться
+  // ставкой или предыдущим результатом. Сохраняем две цифры после запятой.
+  const payout = Math.round(safeBet * payoutTenths) / 10;
+  return { multiplier, payout };
 }
 
 app.post('/api/plinko/drop', async (req, res) => {

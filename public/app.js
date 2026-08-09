@@ -513,7 +513,10 @@ function initPlinko() {
   let pendingTotalPayout = 0;
 
   // Коэффициент и цвет определяются одним и тем же индексом слота.
-  const PAYOUT_VALUES = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
+  // Та же таблица, что и на сервере: значения в десятых долях исключают
+  // подмену 0.2/0.5 или ошибки округления при отображении результата.
+  const PAYOUT_TENTHS = [2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2];
+  const PAYOUT_VALUES = PAYOUT_TENTHS.map(value => value / 10);
   const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
   const PAYOUT_COLORS_BY_VALUE = {
     '5': '#ff4d5e',
@@ -703,7 +706,10 @@ function initPlinko() {
       const slotWidth = boardWidth / SLOT_COUNT;
       ball.actualBucket = ball.bucket;
       ball.x = slotWidth * (ball.bucket + 0.5);
-      ball.multiplier = Number(ball.multiplier) || 0;
+      // Результат уже подтверждён сервером. Сохраняем коэффициент явно:
+      // 1.2x и 1.5x не должны заменяться значением по умолчанию.
+      ball.multiplier = Number(ball.multiplier);
+      ball.payout = Number(ball.payout);
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
       ball.vx = 0;
