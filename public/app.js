@@ -487,7 +487,6 @@ function initPlinko() {
   const betInput = $('plinkoBet');
   const dropButton = $('plinkoButton');
   const resultEl = $('plinkoResult');
-  const riskButtons = [...document.querySelectorAll('.plinko-risk-btn')];
 
   // Пирамида начинается с 3 точек и заканчивается 10 точками.
   // Восемь рядов делают поле компактным и ускоряют игровой процесс.
@@ -504,7 +503,6 @@ function initPlinko() {
   let boardWidth = 300;
   let boardHeight = 360;
 
-  let currentRisk = 'low';
   let currentBalls = 1;
   let dropping = false;
   let requestsDone = false;
@@ -520,15 +518,16 @@ function initPlinko() {
     return Math.max(0, Math.min(SLOT_COUNT - 1, index));
   }
 
-  const PAYOUT_LABELS = {
-    low:    [['0.2x','0.5x','1x','1.2x','1.5x','5x','1.5x','1.2x','1x','0.5x','0.2x']],
-    medium: [['0.2x','0.5x','1x','1.5x','2x','5x','2x','1.5x','1x','0.5x','0.2x']],
-    high:   [['0.2x','0.5x','1.2x','1.5x','2x','5x','2x','1.5x','1.2x','0.5x','0.2x']]
-  };
-  const PAYOUT_COLORS = {
-    low:    ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff9f43','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8'],
-    medium: ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff9f43','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8'],
-    high:   ['#8a93b8','#929bc0','#9aa3c4','#a3accb','#ffd35c','#ff7b39','#ffd35c','#a3accb','#9aa3c4','#929bc0','#8a93b8']
+  // Коэффициент и цвет определяются одним и тем же индексом слота.
+  const PAYOUT_VALUES = [0.2, 0.5, 1.0, 1.2, 1.5, 5.0, 1.5, 1.2, 1.0, 0.5, 0.2];
+  const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
+  const PAYOUT_COLORS_BY_VALUE = {
+    '5': '#49e878',
+    '1.5': '#ff963d',
+    '1.2': '#ffd84d',
+    '1': '#49e878',
+    '0.5': '#ffffff',
+    '0.2': '#ffffff'
   };
 
   function resizeCanvas() {
@@ -579,8 +578,8 @@ function initPlinko() {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(boardWidth, y); ctx.stroke();
     }
 
-    const labels = PAYOUT_LABELS[currentRisk][0];
-    const colors = PAYOUT_COLORS[currentRisk];
+    const labels = PAYOUT_LABELS[0];
+    const colors = PAYOUT_VALUES.map(value => PAYOUT_COLORS_BY_VALUE[String(value)]);
     const slotCount = SLOT_COUNT;
     // Слоты заполняют всю ширину канваса без полей и зазоров.
     const slotWidth = boardWidth / slotCount;
@@ -782,16 +781,6 @@ function initPlinko() {
     dropButton.textContent = `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
   }
 
-  function setRisk(risk) {
-    // Нельзя менять набор коэффициентов посреди серии: иначе уже летящий
-    // шарик получает серверный multiplier одного риска, а подпись на поле
-    // отображается от другого.
-    if (dropping) return;
-    currentRisk = risk;
-    riskButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.risk === risk));
-    drawBoard();
-  }
-
   const ballsButtons = [...document.querySelectorAll('.plinko-balls-btn')];
   function setBallsCount(count) {
     currentBalls = Math.max(1, Math.min(10, Number(count) || 1));
@@ -821,7 +810,7 @@ function initPlinko() {
       for (let i = 0; i < ballsToDrop; i += 1) {
         const data = await request('/api/plinko/drop', {
           method: 'POST',
-          body: JSON.stringify({ bet, risk: currentRisk })
+          body: JSON.stringify({ bet })
         });
         // Не обновляем баланс после каждого шарика: баланс обновится
         // только после завершения анимации всех шариков.
@@ -855,7 +844,6 @@ function initPlinko() {
   };
 
   betInput.addEventListener('input', updateDropButton);
-  riskButtons.forEach(btn => btn.addEventListener('click', () => setRisk(btn.dataset.risk)));
   ballsButtons.forEach(btn => btn.addEventListener('click', () => {
     if (!dropping) setBallsCount(btn.dataset.balls);
   }));
