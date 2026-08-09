@@ -578,7 +578,10 @@ function initPlinko() {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(boardWidth, y); ctx.stroke();
     }
 
-    const labels = PAYOUT_LABELS[0];
+    // PAYOUT_LABELS — плоский массив строк. Индексация [0] оставляла
+    // только строку «0.2x», поэтому canvas показывал отдельные символы
+    // вместо коэффициентов в слотах.
+    const labels = PAYOUT_LABELS;
     const colors = PAYOUT_VALUES.map(value => PAYOUT_COLORS_BY_VALUE[String(value)]);
     const slotCount = SLOT_COUNT;
     // Слоты заполняют всю ширину канваса без полей и зазоров.
