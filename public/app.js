@@ -689,26 +689,15 @@ function initPlinko() {
     }
 
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    // Небольшая постоянная коррекция удерживает шарик в выбранной зоне.
-    // Она начинается сразу, поэтому нет резкого рывка внизу, но физика не
-    // может увести серверский результат в соседний визуальный слот.
-    if (Number.isInteger(ball.bucket)) {
-      const slotWidth = boardWidth / SLOT_COUNT;
-      const targetX = slotWidth * (ball.bucket + 0.5);
-      const distance = targetX - ball.x;
-      ball.vx += Math.max(-90, Math.min(90, distance * 1.8)) * dt;
-      ball.vx *= 0.985;
-      if (ball.y > bottomY - 34) {
-        ball.x += distance * Math.min(1, dt * 5);
-      }
-    }
+    // Здесь больше нет притягивания к целевому слоту: шарик меняет
+    // направление только при столкновениях с точками. Нужная траектория
+    // задаётся один раз при запуске небольшим начальным импульсом, поэтому
+    // во время падения не видно движения к заранее выбранному коэффициенту.
     if (ball.y >= bottomY) {
       ball.y = bottomY;
-      const slotWidth = boardWidth / SLOT_COUNT;
-      // Коэффициент и выплата приходят одной парой с сервера. Фиксируем
-      // шарик в том же слоте, чтобы надпись на поле не расходилась с выплатой.
+      // Результат и выплата по-прежнему принадлежат серверному bucket.
+      // Координата не телепортируется в центр слота при приземлении.
       ball.actualBucket = ball.bucket;
-      ball.x = slotWidth * (ball.bucket + 0.5);
       ball.multiplier = Number(ball.multiplier) || 0;
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
