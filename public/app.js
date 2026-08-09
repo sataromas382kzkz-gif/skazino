@@ -809,22 +809,19 @@ function initPlinko() {
     const ballsToDrop = currentBalls;
     let lastProfile = null;
     try {
-      // Отправляем по одному запросу на шарик; сервер сам списывает bet и
-      // начисляет выигрыш. Каждый шарик падает со случайной позиции сверху.
-      for (let i = 0; i < ballsToDrop; i += 1) {
-        const data = await request('/api/plinko/drop', {
-          method: 'POST',
-          body: JSON.stringify({ bet })
-        });
-        // Не обновляем баланс после каждого шарика: баланс обновится
-        // только после завершения анимации всех шариков.
-        lastProfile = data.profile;
-        // Сохраняем именно серверную выплату, а не пересчитываем её позже.
-        dropBall(data.bucket, data.multiplier, data.payout);
-        if (!animationId) {
-          lastTime = performance.now();
-          animationId = requestAnimationFrame(animate);
-        }
+      // Один запрос атомарно обрабатывает весь набор шариков. Сервер возвращает
+      // отдельный результат для каждого шарика, поэтому коэффициенты не смешиваются.
+      const data = await request('/api/plinko/drop', {
+        method: 'POST',
+        body: JSON.stringify({ bet, count: ballsToDrop })
+      });
+      lastProfile = data.profile;
+      for (const result of data.results) {
+        dropBall(result.bucket, result.multiplier, result.payout);
+      }
+      if (!animationId) {
+        lastTime = performance.now();
+        animationId = requestAnimationFrame(animate);
       }
       // Ждём, пока все шарики долетят: после этого animate сам разблокирует кнопку
       // и обновит баланс через render().

@@ -617,23 +617,35 @@ app.post('/api/plinko/drop', async (req, res) => {
   const tgUser = currentUser(req);
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   const bet = Number(req.body?.bet);
+  const count = Math.max(1, Math.min(10, Math.floor(Number(req.body?.count) || 1)));
   if (!Number.isInteger(bet) || bet < PLINKO_MIN_BET) {
     return res.status(400).json({ error: `Минимальная ставка — ${PLINKO_MIN_BET} ⭐` });
   }
-  const bucket = drawPlinkoBucket();
-  const multiplier = PLINKO_PAYOUTS[bucket];
-  const payout = Math.floor(bet * multiplier);
+
+  // Каждый шарик получает собственный bucket, коэффициент и выплату.
+  // Весь пакет обрабатывается одной операцией, чтобы баланс не мог смешать
+  // результат одного шарика с результатом другого при нескольких бросках.
+  const results = Array.from({ length: count }, () => {
+    const bucket = drawPlinkoBucket();
+    const multiplier = PLINKO_PAYOUTS[bucket];
+    return { bucket, multiplier: Number(multiplier.toFixed(2)), payout: Math.floor(bet * multiplier) };
+  });
+  const totalStake = bet * count;
+  const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
   let profile;
-  try { profile = await getProfile(tgUser); }
-  catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
-  if ((Number(profile.caseStars) || 0) < bet) {
-    return res.status(400).json({ error: 'Недостаточно звёзд для ставки' });
+  try {
+    profile = await getProfile(tgUser);
+    if ((Number(profile.caseStars) || 0) < totalStake) {
+      return res.status(400).json({ error: 'Недостаточно звёзд для ставки' });
+    }
+    profile.caseStars = (Number(profile.caseStars) || 0) - totalStake + totalPayout;
+    profile.stars = profile.caseStars;
+    await saveUser(profile);
+  } catch (error) {
+    console.error(error);
+    return res.status(503).json({ error: 'Не удалось сохранить результат Плинко' });
   }
-  profile.caseStars = (Number(profile.caseStars) || 0) - bet + payout;
-  profile.stars = profile.caseStars;
-  try { await saveUser(profile); }
-  catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
-  res.json({ profile, bucket, multiplier: Number(multiplier.toFixed(2)), payout });
+  res.json({ profile, results, totalPayout });
 });
 
 app.post('/api/rocket/start', async (req, res) => {
