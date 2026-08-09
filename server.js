@@ -623,13 +623,16 @@ app.post('/api/plinko/drop', async (req, res) => {
     return res.status(400).json({ error: `Минимальная ставка — ${PLINKO_MIN_BET} ⭐` });
   }
 
-  // Каждый шарик получает собственный bucket, коэффициент и выплату.
-  // Весь пакет обрабатывается одной операцией, чтобы баланс не мог смешать
-  // результат одного шарика с результатом другого при нескольких бросках.
+  // Каждый шарик получает собственный bucket. Выплата рассчитывается строго
+  // по коэффициенту этого bucket, а не по позиции/коэффициентам соседнего слота.
+  // Весь пакет обрабатывается одной операцией, поэтому ставка и начисление
+  // не могут смешаться между шариками.
   const results = Array.from({ length: count }, () => {
     const bucket = drawPlinkoBucket();
-    const multiplier = PLINKO_PAYOUTS[bucket];
-    return { bucket, multiplier: Number(multiplier.toFixed(2)), payout: Math.floor(bet * multiplier) };
+    const multiplier = Number(PLINKO_PAYOUTS[bucket]);
+    // Округляем каждый возврат до целой звезды, чтобы дробная часть не
+    // терялась всегда в пользу системы.
+    return { bucket, multiplier, payout: Math.round(bet * multiplier) };
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);

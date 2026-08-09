@@ -755,9 +755,12 @@ function initPlinko() {
       // Нельзя пересчитывать её через локальный input: при нескольких шариках
       // или изменении ставки во время раунда это давало неверный итог.
       const balance = balls.reduce((sum, ball) => sum + (Number.isFinite(ball.payout) ? ball.payout : 0), 0);
-      // Показываем только понятный итог раунда, без коэффициентов и лишнего
-      // технического текста: игроку важны статус и полученные звёзды.
-      resultEl.textContent = `Выигрыш: +${balance} ⭐`;
+      const stake = Math.max(10, Number(betInput.value) || 10) * balls.length;
+      const netResult = balance - stake;
+      // Выплата каждого шарика уже рассчитана сервером по его bucket и
+      // коэффициенту. Показываем и валовую выплату, и чистый итог раунда,
+      // чтобы списанная ставка не выглядела как дополнительный проигрыш.
+      resultEl.textContent = `${netResult >= 0 ? 'Выигрыш' : 'Проигрыш'}: ${netResult >= 0 ? '+' : ''}${netResult} ⭐ (выплата ${balance} ⭐)`;
       resultEl.classList.add('show');
       resultEl.classList.add('win');
       resultEl.classList.remove('lose');
