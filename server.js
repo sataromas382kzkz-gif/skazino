@@ -680,10 +680,10 @@ app.post('/api/plinko/drop', async (req, res) => {
   // не могут смешаться между шариками.
   const results = Array.from({ length: count }, () => {
     const bucket = drawPlinkoBucket();
-    const { multiplier, payout } = plinkoPayout(bet, bucket);
-    // Округляем только итог до целой звезды: 10 × 1.2 = 12,
-    // 10 × 1.5 = 15.
-    return { bucket, multiplier, payout, coefficientTenths: Math.round(multiplier * 10) };
+    const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket);
+    // Коэффициент и выплата передаются явно в целых десятых долях.
+    // Поэтому 5x при ставке 10 всегда означает 50, а не 5.
+    return { bucket, multiplier, coefficientTenths, payout };
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);

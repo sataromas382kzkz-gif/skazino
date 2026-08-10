@@ -837,10 +837,12 @@ function initPlinko() {
       const expectedPayout = result => {
         const tenths = PAYOUT_TENTHS[Number(result.bucket)];
         const multiplier = Number(result.multiplier);
+        const coefficientTenths = Number(result.coefficientTenths);
         const payout = Number(result.payout);
         if (!Number.isInteger(tenths)
+          || coefficientTenths !== tenths
           || multiplier !== tenths / 10
-          || payout !== Math.floor(bet * tenths / 10)) {
+          || payout !== Math.floor(bet * coefficientTenths / 10)) {
           throw Error('Сервер вернул несоответствующий коэффициент Плинко');
         }
         return payout;
