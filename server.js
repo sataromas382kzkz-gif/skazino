@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 import { promoCodes } from './promo-codes.js';
-import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, plinkoResult } from './plinko.js';
+import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, plinkoResult, validatePlinkoResult } from './plinko.js';
 
 const ADMIN_TELEGRAM_ID = '5310549412';
 const adminStates = new Map();
@@ -691,10 +691,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   // Повторно проверяем каждую строку перед изменением баланса. Это защищает от
   // рассинхронизации bucket/multiplier/payout при изменении таблицы коэффициентов.
   for (const result of results) {
-    const expected = plinkoPayout(bet, result.bucket);
-    if (result.multiplier !== expected.multiplier || result.payout !== expected.payout) {
-      throw new Error('Несоответствие коэффициента и выплаты Плинко');
-    }
+    validatePlinkoResult(bet, result);
   }
   if (!Number.isFinite(totalPayout)) throw new Error('Некорректная выплата Плинко');
   let profile;
