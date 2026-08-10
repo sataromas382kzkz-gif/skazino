@@ -3,12 +3,22 @@
 export const PLINKO_MIN_BET = 10;
 export const PLINKO_COEFFICIENT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
 
-export function plinkoResult(bet, bucket) {
+export function calculatePlinkoPayout(bet, coefficientTenths) {
   const stake = Number(bet);
-  const slot = Number(bucket);
+  const coefficient = Number(coefficientTenths);
   if (!Number.isSafeInteger(stake) || stake < PLINKO_MIN_BET) {
     throw new Error('Некорректная ставка Плинко');
   }
+  if (!Number.isSafeInteger(coefficient) || coefficient < 0) {
+    throw new Error('Некорректный коэффициент Плинко');
+  }
+  // Коэффициент хранится в десятых долях: 50 = 5x.
+  // Считаем целыми числами, чтобы исключить ошибки вроде 10 * 1.2 = 11.999…
+  return Math.floor(stake * coefficient / 10);
+}
+
+export function plinkoResult(bet, bucket) {
+  const slot = Number(bucket);
   if (!Number.isInteger(slot) || slot < 0 || slot >= PLINKO_COEFFICIENT_TENTHS.length) {
     throw new Error('Некорректный слот Плинко');
   }
@@ -17,9 +27,8 @@ export function plinkoResult(bet, bucket) {
     bucket: slot,
     coefficientTenths,
     multiplier: coefficientTenths / 10,
-    // Возвращаемая сумма = ставка × коэффициент. Считаем в десятых,
-    // чтобы 10 × 1.2 давало ровно 12, а 10 × 0.2 — ровно 2.
-    payout: Math.floor(stake * coefficientTenths / 10)
+    // Выплата каждого шарика = его ставка × коэффициент его слота.
+    payout: calculatePlinkoPayout(bet, coefficientTenths)
   };
 }
 
