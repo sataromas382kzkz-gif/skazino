@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 import { promoCodes } from './promo-codes.js';
-import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, plinkoResult, validatePlinkoResult } from './plinko.js';
+import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, calculatePlinkoPayout, plinkoResult } from './plinko.js';
 
 const ADMIN_TELEGRAM_ID = '5310549412';
 const adminStates = new Map();
@@ -661,8 +661,14 @@ function drawPlinkoBucket() {
 
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
 // через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
-function plinkoPayout(bet, bucket) {
-  return plinkoResult(bet, bucket);
+function plinkoPayout(bet, bucket, count) {
+  const result = plinkoResult(bet, bucket);
+  return {
+    ...result,
+    // Ставка в запросе — общая ставка за все шарики. Каждый шарик получает
+    // равную долю этой ставки, затем она умножается на его коэффициент.
+    payout: calculatePlinkoPayout(bet, result.coefficientTenths, count)
+  };
 }
 
 app.post('/api/plinko/drop', async (req, res) => {
@@ -680,7 +686,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   // не могут смешаться между шариками.
   const results = Array.from({ length: count }, () => {
     const bucket = drawPlinkoBucket();
-    const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket);
+    const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket, count);
     // Коэффициент и выплата передаются явно в целых десятых долях.
     // Поэтому 5x при ставке 10 всегда означает 50, а не 5.
     return { bucket, multiplier, coefficientTenths, payout };
@@ -691,7 +697,12 @@ app.post('/api/plinko/drop', async (req, res) => {
   // Повторно проверяем каждую строку перед изменением баланса. Это защищает от
   // рассинхронизации bucket/multiplier/payout при изменении таблицы коэффициентов.
   for (const result of results) {
-    validatePlinkoResult(bet, result);
+    const expected = plinkoResult(bet, result.bucket);
+    if (result.coefficientTenths !== expected.coefficientTenths
+      || result.multiplier !== expected.multiplier
+      || result.payout !== calculatePlinkoPayout(bet, result.coefficientTenths, count)) {
+      throw new Error('Несоответствие коэффициента и выплаты Плинко');
+    }
   }
   if (!Number.isFinite(totalPayout)) throw new Error('Некорректная выплата Плинко');
   let profile;

@@ -16,6 +16,9 @@ assert.equal(plinkoResult(10, 5).multiplier, 5);
 assert.equal(plinkoResult(10, 5).payout, 50);
 assert.equal(calculatePlinkoPayout(10, 50), 50);
 assert.equal(calculatePlinkoPayout(25, 50), 125);
-assert.deepEqual(validatePlinkoResult(10, plinkoResult(10, 5)), plinkoResult(10, 5));
-assert.throws(() => validatePlinkoResult(10, { bucket: 5, coefficientTenths: 50, multiplier: 5, payout: 5 }), /Несоответствие/);
+// При 5 шариках общая ставка 25 ⭐ распределяется по 5 ⭐ на шарик:
+// шарик на 5x приносит 25 ⭐.
+assert.equal(calculatePlinkoPayout(25, 50, 5), 25);
+assert.equal(calculatePlinkoPayout(10, 2, 3), 0);
+assert.throws(() => calculatePlinkoPayout(10, 50, 0), /количество шариков/);
 console.log('Проверка выплат Плинко пройдена');

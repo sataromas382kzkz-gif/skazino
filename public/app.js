@@ -842,7 +842,7 @@ function initPlinko() {
         if (!Number.isInteger(tenths)
           || coefficientTenths !== tenths
           || multiplier !== tenths / 10
-          || payout !== Math.floor(bet * coefficientTenths / 10)) {
+          || payout !== Math.floor(bet * coefficientTenths / (10 * ballsToDrop))) {
           throw Error('Сервер вернул несоответствующий коэффициент Плинко');
         }
         return payout;
