@@ -671,14 +671,6 @@ function initPlinko() {
     if (ball.settled) return;
     const gravity = 420;
     ball.vy = Math.min(300, (ball.vy || 0) + gravity * dt);
-    // Плавное притяжение к целевому слоту: чем ниже шарик, тем сильнее сила.
-    // Это гарантирует, что шарик визуально попадёт в правильный слот,
-    // совпадающий с серверным коэффициентом, а не «прыгнет» при финальном snap.
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const targetX = slotWidth * (ball.bucket + 0.5);
-    const progress = Math.min(1, Math.max(0, (ball.y - TOP_Y) / (boardHeight - TOP_Y)));
-    const pull = (targetX - ball.x) * 1.8 * progress * progress;
-    ball.vx += pull;
     ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x + ball.vx * dt));
     ball.y += ball.vy * dt;
 
@@ -703,25 +695,15 @@ function initPlinko() {
     }
 
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    // Здесь больше нет притягивания к целевому слоту: шарик меняет
-    // направление только при столкновениях с точками. Нужная траектория
-    // задаётся один раз при запуске небольшим начальным импульсом, поэтому
-    // во время падения не видно движения к заранее выбранному коэффициенту.
     if (ball.y >= bottomY) {
       ball.y = bottomY;
-      // Результат и выплата по-прежнему принадлежат серверному bucket.
-      // В последний момент фиксируем шарик в центре его слота. Пока шарик
-      // проходит точки, к нему нет никакого притягивания, поэтому визуальная
-      // траектория остаётся естественной, а коэффициент и выплата совпадают.
+      // Результат и выплата принадлежат серверному bucket. Фиксируем
+      // шарик в центре слота при достижении дна.
       const slotWidth = boardWidth / SLOT_COUNT;
       ball.actualBucket = ball.bucket;
       ball.x = slotWidth * (ball.bucket + 0.5);
-      // Результат уже подтверждён сервером. Сохраняем коэффициент явно:
-      // 1.2x и 1.5x не должны заменяться значением по умолчанию.
       ball.multiplier = Number(ball.multiplier);
       ball.payout = Number(ball.payout);
-      // Выплата приходит с сервера и показывается именно для этого шарика.
-      // Визуальная анимация не пересчитывает её по позиции canvas.
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
       ball.vy = 0;
       ball.vx = 0;
@@ -732,17 +714,21 @@ function initPlinko() {
   function dropBall(bucket, multiplier, payout) {
     // Каждый шарик появляется над центром поля — в диапазоне первых трёх
     // точек (первый ряд: 3, 4 и 5). Результат bucket уже выбран сервером,
-    // но стартовая позиция не зависит от него: поэтому шарик с 0.2x не
-    // возникает сразу над своим финальным слотом и действительно проходит
-    // всю пирамиду с заданными шансами.
+    // но стартовая позиция не зависит от него.
     const firstRow = pegPositions().slice(0, 3);
     const leftPoint = firstRow[0]?.x ?? boardWidth / 2 - colGap;
     const rightPoint = firstRow.at(-1)?.x ?? boardWidth / 2 + colGap;
     const x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS,
       leftPoint + Math.random() * (rightPoint - leftPoint)));
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
+    // Мягкое начальное направление: шарик получает лёгкий толчок в сторону
+    // целевого слота ещё при появлении. Это выглядит как естественное начало
+    // траектории, а не притяжение во время падения.
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const targetX = slotWidth * (bucketIndex + 0.5);
+    const initialBias = (targetX - x) * 0.06;
     const ball = {
-      x, y: TOP_Y - Math.max(18, rowGap * 0.55), vx: (Math.random() - 0.5) * 22, vy: 0,
+      x, y: TOP_Y - Math.max(18, rowGap * 0.55), vx: (Math.random() - 0.5) * 22 + initialBias, vy: 0,
       settled: false, bucket: bucketIndex, multiplier, payout: Number(payout)
     };
     balls.push(ball);
