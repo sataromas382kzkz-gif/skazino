@@ -661,14 +661,8 @@ function drawPlinkoBucket() {
 
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
 // через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
-function plinkoPayout(bet, bucket, count) {
-  const result = plinkoResult(bet, bucket);
-  return {
-    ...result,
-    // Ставка в запросе — общая ставка за все шарики. Каждый шарик получает
-    // равную долю этой ставки, затем она умножается на его коэффициент.
-    payout: calculatePlinkoPayout(bet, result.coefficientTenths, count)
-  };
+function plinkoPayout(bet, bucket) {
+  return plinkoResult(bet, bucket);
 }
 
 app.post('/api/plinko/drop', async (req, res) => {
@@ -686,7 +680,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   // не могут смешаться между шариками.
   const results = Array.from({ length: count }, () => {
     const bucket = drawPlinkoBucket();
-    const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket, count);
+    const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket);
     // Коэффициент и выплата передаются явно в целых десятых долях.
     // Поэтому 5x при ставке 10 всегда означает 50, а не 5.
     return { bucket, multiplier, coefficientTenths, payout };
@@ -700,7 +694,7 @@ app.post('/api/plinko/drop', async (req, res) => {
     const expected = plinkoResult(bet, result.bucket);
     if (result.coefficientTenths !== expected.coefficientTenths
       || result.multiplier !== expected.multiplier
-      || result.payout !== calculatePlinkoPayout(bet, result.coefficientTenths, count)) {
+      || result.payout !== calculatePlinkoPayout(bet, result.coefficientTenths)) {
       throw new Error('Несоответствие коэффициента и выплаты Плинко');
     }
   }

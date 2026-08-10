@@ -3,23 +3,19 @@
 export const PLINKO_MIN_BET = 10;
 export const PLINKO_COEFFICIENT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
 
-export function calculatePlinkoPayout(bet, coefficientTenths, ballCount = 1) {
+export function calculatePlinkoPayout(bet, coefficientTenths) {
   const totalStake = Number(bet);
   const coefficient = Number(coefficientTenths);
-  const count = Number(ballCount);
   if (!Number.isSafeInteger(totalStake) || totalStake < PLINKO_MIN_BET) {
     throw new Error('Некорректная ставка Плинко');
   }
   if (!Number.isSafeInteger(coefficient) || coefficient < 0) {
     throw new Error('Некорректный коэффициент Плинко');
   }
-  if (!Number.isSafeInteger(count) || count < 1) {
-    throw new Error('Некорректное количество шариков Плинко');
-  }
-  // При нескольких шариках ставка делится между ними. Коэффициент хранится
-  // в десятых долях: 50 = 5x. Округляем выплату каждого шарика вниз до целой
-  // звезды, поскольку баланс Telegram не поддерживает дробные звёзды.
-  return Math.floor(totalStake * coefficient / (10 * count));
+  // Выплата одного шарика = его ставка × множитель. Коэффициент хранится
+  // в десятых долях: 50 = 5x. Округляем выплату вниз до целой звезды,
+  // поскольку баланс Telegram не поддерживает дробные звёзды.
+  return Math.floor(totalStake * coefficient / 10);
 }
 
 export function plinkoResult(bet, bucket) {
@@ -33,7 +29,7 @@ export function plinkoResult(bet, bucket) {
     coefficientTenths,
     multiplier: coefficientTenths / 10,
     // Выплата каждого шарика = его ставка × коэффициент его слота.
-    payout: calculatePlinkoPayout(bet, coefficientTenths, 1)
+    payout: calculatePlinkoPayout(bet, coefficientTenths)
   };
 }
 

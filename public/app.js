@@ -595,18 +595,19 @@ function initPlinko() {
     for (let i = 0; i < slotCount; i += 1) {
       const x = slotWidth * i;
       const y = boardHeight - BOTTOM_MARGIN + 4;
-      if (highlightBuckets.has(i) && balls.some(ball => ball.settled && ball.actualBucket === i && ball.multiplier > 0)) {
-        ctx.fillStyle = 'rgba(100,255,130,0.28)';
-        ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
-        ctx.fillStyle = 'rgba(100,255,130,0.7)';
-        ctx.fillRect(x + 2, y - 2, slotWidth - 4, 3);
-      }
       // Компактный слот: тёмный фон, чёткая рамка, яркая полоса сверху.
       ctx.fillStyle = 'rgba(5, 9, 22, 0.92)';
       ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
       ctx.strokeStyle = 'rgba(150,170,255,0.45)';
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      // Подсветка рисуется ПОСЛЕ фона слота, чтобы была видна.
+      if (highlightBuckets.has(i) && balls.some(ball => ball.settled && ball.actualBucket === i && ball.multiplier > 0)) {
+        ctx.fillStyle = 'rgba(100,255,130,0.28)';
+        ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+        ctx.fillStyle = 'rgba(100,255,130,0.7)';
+        ctx.fillRect(x + 2, y - 2, slotWidth - 4, 3);
+      }
       ctx.strokeStyle = colors[i];
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -646,7 +647,6 @@ function initPlinko() {
   function renderFrame() {
     drawBoard();
     for (const ball of balls) {
-      if (!ball.settled) {
         ctx.save();
         const gradient = ctx.createRadialGradient(
           ball.x - 2, ball.y - 2, 1,
@@ -656,13 +656,14 @@ function initPlinko() {
         gradient.addColorStop(0.45, '#ffd04a');
         gradient.addColorStop(1, '#ff9d1f');
         ctx.fillStyle = gradient;
-        ctx.shadowColor = 'rgba(255,180,60,0.9)';
-        ctx.shadowBlur = 12;
+        if (!ball.settled) {
+          ctx.shadowColor = 'rgba(255,180,60,0.9)';
+          ctx.shadowBlur = 12;
+        }
         ctx.beginPath();
         ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-      }
     }
   }
 
@@ -670,6 +671,14 @@ function initPlinko() {
     if (ball.settled) return;
     const gravity = 420;
     ball.vy = Math.min(300, (ball.vy || 0) + gravity * dt);
+    // Плавное притяжение к целевому слоту: чем ниже шарик, тем сильнее сила.
+    // Это гарантирует, что шарик визуально попадёт в правильный слот,
+    // совпадающий с серверным коэффициентом, а не «прыгнет» при финальном snap.
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const targetX = slotWidth * (ball.bucket + 0.5);
+    const progress = Math.min(1, Math.max(0, (ball.y - TOP_Y) / (boardHeight - TOP_Y)));
+    const pull = (targetX - ball.x) * 1.8 * progress * progress;
+    ball.vx += pull;
     ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x + ball.vx * dt));
     ball.y += ball.vy * dt;
 
@@ -842,7 +851,7 @@ function initPlinko() {
         if (!Number.isInteger(tenths)
           || coefficientTenths !== tenths
           || multiplier !== tenths / 10
-          || payout !== Math.floor(bet * coefficientTenths / (10 * ballsToDrop))) {
+          || payout !== Math.floor(bet * coefficientTenths / 10)) {
           throw Error('Сервер вернул несоответствующий коэффициент Плинко');
         }
         return payout;
