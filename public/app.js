@@ -48,7 +48,7 @@ function render(user, data) {
   const rocketStars = data.caseStars ?? data.stars ?? 0;
   if ($('rocketStars')) $('rocketStars').textContent=rocketStars;
   if ($('plinkoStars')) $('plinkoStars').textContent = rocketStars;
-  if ($('profilePrizeStars')) $('profilePrizeStars').textContent=rocketStars;
+  if ($('profilePrizeStars')) $('profilePrizeStars').textContent=data.prizeStars ?? 0;
   if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
   startDailyTimer();
 }
@@ -81,7 +81,7 @@ function renderGifts() {
 }
 $('giftsButton').onclick=()=>{ renderGifts(); $('giftsModal').classList.add('visible'); };
 $('withdrawStarsButton').onclick=()=>{
-  if ((profile?.caseStars ?? profile?.stars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 звёзд');
+  if ((profile?.prizeStars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 звёзд');
   window.open('https://t.me/murarru', '_blank', 'noopener');
 };
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
@@ -671,6 +671,14 @@ function initPlinko() {
     if (ball.settled) return;
     const gravity = 420;
     ball.vy = Math.min(300, (ball.vy || 0) + gravity * dt);
+    // Мягкое направление к серверному слоту: чем ниже шарик, тем сильнее
+    // лёгкое притяжение. Сила достаточна, чтобы визуальный путь совпадал
+    // с серверным результатом, но слишком мала, чтобы быть заметной.
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const targetX = slotWidth * (ball.bucket + 0.5);
+    const progress = Math.min(1, Math.max(0, (ball.y - TOP_Y) / (boardHeight - TOP_Y)));
+    const gentleGuide = (targetX - ball.x) * 0.35 * progress * progress;
+    ball.vx += gentleGuide;
     ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x + ball.vx * dt));
     ball.y += ball.vy * dt;
 
@@ -686,8 +694,6 @@ function initPlinko() {
         ball.x = peg.x + nx * minDist;
         ball.y = peg.y + ny * minDist;
         ball.vy *= -0.28;
-        // После контакта отталкиваем шарик мягче: при узком угле он не
-        // застревает между двумя соседними точками.
         ball.vx = nx * 28 + (Math.random() - 0.5) * 16;
         ball.vy += 24;
         playTone(500 + Math.random() * 300, 0.03, 0.018);
@@ -697,11 +703,9 @@ function initPlinko() {
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
     if (ball.y >= bottomY) {
       ball.y = bottomY;
-      // Результат и выплата принадлежат серверному bucket. Фиксируем
-      // шарик в центре слота при достижении дна.
-      const slotWidth = boardWidth / SLOT_COUNT;
+      const slotWidth2 = boardWidth / SLOT_COUNT;
       ball.actualBucket = ball.bucket;
-      ball.x = slotWidth * (ball.bucket + 0.5);
+      ball.x = slotWidth2 * (ball.bucket + 0.5);
       ball.multiplier = Number(ball.multiplier);
       ball.payout = Number(ball.payout);
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
