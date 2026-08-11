@@ -511,9 +511,6 @@ function initPlinko() {
   let lastTime = 0;
   let pendingProfile = null;
   let pendingTotalPayout = 0;
-  // Кратковременные вспышки в местах удара шарика о точки: показывают,
-  // что шарик действительно бьётся о peg, и быстро исчезают.
-  let pegHits = [];
 
   // Коэффициент и цвет определяются одним и тем же индексом слота.
   // Та же таблица, что и на сервере: значения в десятых долях исключают
@@ -649,20 +646,6 @@ function initPlinko() {
 
   function renderFrame() {
     drawBoard();
-    // Вспышки от ударов о точки: затухают за несколько кадров.
-    for (let i = pegHits.length - 1; i >= 0; i -= 1) {
-      const hit = pegHits[i];
-      hit.life -= 0.07;
-      if (hit.life <= 0) { pegHits.splice(i, 1); continue; }
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, hit.life);
-      ctx.strokeStyle = 'rgba(255, 214, 90, 0.95)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(hit.x, hit.y, pegRadius + 7 + (1 - hit.life) * 12, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
     for (const ball of balls) {
         ctx.save();
         const gradient = ctx.createRadialGradient(
@@ -686,36 +669,23 @@ function initPlinko() {
 
   function updateBall(ball, dt) {
     if (ball.settled) return;
-    const gravity = 140; // Плавное ускорение вниз
-    const maxVy = 300;
-    ball.vy = Math.min(maxVy, (ball.vy || 0) + gravity * dt);
+    // Естественное падение с обычной визуальной скоростью.
+    const gravity = 240;
+    ball.vy = Math.min(320, (ball.vy || 0) + gravity * dt);
 
-    // Плавное подруливание к целевому слоту: чем дальше от цели, тем сильнее
-    // тянем вбок; пружинное сглаживание не даёт резких дёрганий. Умеренная
-    // сила, чтобы шарик успевал задевать точки по пути, а не улетал по краю.
-    // Цель уводится внутрь поля точек: крайние слоты находятся за пределами
-    // последнего ряда peg, поэтому подруливаем к последней точке, а к самому
-    // крайнему коэффициенту шарик скатывается уже у самого низа.
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const targetX = slotWidth * (ball.bucket + 0.5);
-    const steeringTargetX = boardWidth / 2 + (targetX - boardWidth / 2) * 0.85;
-    const error = steeringTargetX - ball.x;
-    const maxVx = 80;
-    const desiredVx = Math.max(-maxVx, Math.min(maxVx, error * 0.8));
-    ball.vx += (desiredVx - (ball.vx || 0)) * Math.min(1, 8 * dt);
-
-    ball.x += ball.vx * dt;
+    ball.x += (ball.vx || 0) * dt;
     ball.y += ball.vy * dt;
     // Не даём шарику вылететь за пределы доски.
     ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x));
     ball.y = Math.min(boardHeight - BALL_RADIUS, Math.max(TOP_Y - 20, ball.y));
 
-    // Удар о точку: шарик видимо отбивается в сторону цели, но обязательно
-    // продолжает падать вниз (vy не может стать отрицательным). Такая схема
-    // исключает и "прилипание" к точке, и бесконечную тряску на peg.
+    // Удар о точку: шарик видимо отскакивает, но всегда продолжает падать
+    // вниз (vy не становится отрицательным — никаких подпрыгиваний и
+    // залипаний на точке). Небольшой "кулдаун" на повторный удар о ту же
+    // точку невидим и просто не даёт шарику дребезжать на одном peg.
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const targetX = slotWidth * (ball.bucket + 0.5);
     const pegs = pegPositions();
-    // Короткий кулдаун на повторный удар о ту же точку: исключает "дребезг"
-    // шарика на одном peg и делает движение плавным каскадом вниз.
     ball.pegHitCooldown = Math.max(0, (ball.pegHitCooldown || 0) - dt);
     for (let pegIndex = 0; pegIndex < pegs.length; pegIndex += 1) {
       const peg = pegs[pegIndex];
@@ -727,36 +697,40 @@ function initPlinko() {
       if (dist < minDist && dist > 0.001) {
         const nx = dx / dist;
         const ny = dy / dist;
-        // Выталкиваем чуть за пределы радиуса, чтобы шарик сразу уходил
-        // от точки и не задевал её повторно в следующем кадре.
-        ball.x = peg.x + nx * (minDist + 2);
-        ball.y = peg.y + ny * (minDist + 2);
-        // Отскок в сторону целевого слота с лёгкой случайностью.
-        const dirTarget = error > 2 ? 1 : error < -2 ? -1 : (Math.random() < 0.5 ? 1 : -1);
-        ball.vx = dirTarget * (28 + Math.random() * 26);
-        // Гарантированное продолжение падения после удара.
-        ball.vy = Math.max(ball.vy, 130);
+        // Выталкиваем из точки и слегка уводим в сторону целевого слота,
+        // чтобы шарик соскальзывал вбок, а не зависал на верхушке peg.
+        const side = targetX > ball.x ? 1 : -1;
+        ball.x = peg.x + nx * (minDist + 1) + side * 3;
+        ball.y = peg.y + ny * (minDist + 1);
+
+        // Отражение скорости от точки с затуханием.
+        const dot = ball.vx * nx + ball.vy * ny;
+        ball.vx -= 1.4 * dot * nx;
+        ball.vy = Math.max(Math.abs(ball.vy - 0.3 * dot * ny), 45);
+
+        // Лёгкое направление к целевому слоту + небольшой разброс,
+        // чтобы шарик шёл к нужному коэффициенту.
+        const jitter = (Math.random() - 0.5) * 10;
+        ball.vx = (Math.abs(ball.vx) * 0.7 + 12) * side + jitter;
         ball.lastHitPeg = pegIndex;
-        ball.pegHitCooldown = 0.09;
-        spawnPegHit(peg.x, peg.y);
+        ball.pegHitCooldown = 0.1;
         playTone(500 + Math.random() * 300, 0.03, 0.018);
       }
     }
 
-    // У самих слотов мягко притягиваем шарик точно к целевому слоту,
-    // чтобы он плавно скатывался в нужный коэффициент.
+    // У самих слотов мягко ведём шарик в центр своего коэффициента,
+    // чтобы при приземлении не было резкого скачка между слотами.
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
     if (ball.y > bottomY - rowGap * 1.6) {
-      ball.x += (targetX - ball.x) * 0.18;
-      ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x));
+      ball.x += (targetX - ball.x) * 0.2;
     }
 
     if (ball.y >= bottomY) {
       ball.y = bottomY;
-      const slotWidth2 = boardWidth / SLOT_COUNT;
-      // Фиксируем шарик в слотах, чтобы избежать телепортации
+      // Фиксируем шарик ровно в центре серверного слота: это исключает
+      // «телепортацию» между коэффициентами после приземления.
       ball.actualBucket = ball.bucket;
-      ball.x = slotWidth2 * (ball.bucket + 0.5);
+      ball.x = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
       ball.multiplier = Number(ball.multiplier);
       ball.payout = Number(ball.payout);
       ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
@@ -764,10 +738,6 @@ function initPlinko() {
       ball.vx = 0;
       ball.settled = true;
     }
-  }
-
-  function spawnPegHit(x, y) {
-    pegHits.push({ x, y, life: 1 });
   }
 
   function dropBall(bucket, multiplier, payout) {
@@ -862,9 +832,8 @@ function initPlinko() {
     dropButton.disabled = true;
     resultEl.classList.remove('show');
     pendingTotalPayout = 0;
-    // Новая попытка: убираем шарики и вспышки предыдущей попытки с доски.
+    // Новая попытка: убираем шарики предыдущей попытки с доски.
     balls = [];
-    pegHits = [];
     if (animationId) cancelAnimationFrame(animationId);
     animationId = null;
     renderFrame();

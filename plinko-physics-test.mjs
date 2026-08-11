@@ -1,8 +1,9 @@
 // Смоук-тест физики шарика Плинко (клиентская логика из public/app.js).
 // Проверяет, что шарик:
-//  1) не застревает на точках и не трясётся — долетает до дна за разумное время;
+//  1) не застревает на точках — долетает до дна за разумное время;
 //  2) видимо бьётся о точки (происходят столкновения);
-//  3) приземляется в правильный целевой слот.
+//  3) не трясётся бесконечно на одной точке (не слишком много ударов);
+//  4) докатывается до целевого слота.
 const ROWS = 8;
 const SLOT_COUNT = 11;
 const PADDING_X = 30;
@@ -31,23 +32,16 @@ const pegs = pegPositions();
 
 function updateBall(ball, dt) {
   if (ball.settled) return;
-  const gravity = 140;
-  const maxVy = 300;
-  ball.vy = Math.min(maxVy, (ball.vy || 0) + gravity * dt);
+  const gravity = 240;
+  ball.vy = Math.min(320, (ball.vy || 0) + gravity * dt);
 
-  const slotWidth = boardWidth / SLOT_COUNT;
-  const targetX = slotWidth * (ball.bucket + 0.5);
-  const steeringTargetX = boardWidth / 2 + (targetX - boardWidth / 2) * 0.85;
-  const error = steeringTargetX - ball.x;
-  const maxVx = 80;
-  const desiredVx = Math.max(-maxVx, Math.min(maxVx, error * 0.8));
-  ball.vx += (desiredVx - (ball.vx || 0)) * Math.min(1, 8 * dt);
-
-  ball.x += ball.vx * dt;
+  ball.x += (ball.vx || 0) * dt;
   ball.y += ball.vy * dt;
   ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x));
   ball.y = Math.min(boardHeight - BALL_RADIUS, Math.max(TOP_Y - 20, ball.y));
 
+  const slotWidth = boardWidth / SLOT_COUNT;
+  const targetX = slotWidth * (ball.bucket + 0.5);
   let bounces = 0;
   ball.pegHitCooldown = Math.max(0, (ball.pegHitCooldown || 0) - dt);
   for (let pegIndex = 0; pegIndex < pegs.length; pegIndex += 1) {
@@ -60,13 +54,16 @@ function updateBall(ball, dt) {
     if (dist < minDist && dist > 0.001) {
       const nx = dx / dist;
       const ny = dy / dist;
-      ball.x = peg.x + nx * (minDist + 2);
-      ball.y = peg.y + ny * (minDist + 2);
-      const dirTarget = error > 2 ? 1 : error < -2 ? -1 : (Math.random() < 0.5 ? 1 : -1);
-      ball.vx = dirTarget * (28 + Math.random() * 26);
-      ball.vy = Math.max(ball.vy, 130);
+      const side = targetX > ball.x ? 1 : -1;
+      ball.x = peg.x + nx * (minDist + 1) + side * 3;
+      ball.y = peg.y + ny * (minDist + 1);
+      const dot = ball.vx * nx + ball.vy * ny;
+      ball.vx -= 1.4 * dot * nx;
+      ball.vy = Math.max(Math.abs(ball.vy - 0.3 * dot * ny), 45);
+      const jitter = (Math.random() - 0.5) * 10;
+      ball.vx = (Math.abs(ball.vx) * 0.7 + 12) * side + jitter;
       ball.lastHitPeg = pegIndex;
-      ball.pegHitCooldown = 0.09;
+      ball.pegHitCooldown = 0.1;
       bounces += 1;
     }
   }
@@ -74,8 +71,7 @@ function updateBall(ball, dt) {
 
   const bottomY = boardHeight - BOTTOM_MARGIN + 6;
   if (ball.y > bottomY - rowGap * 1.6) {
-    ball.x += (targetX - ball.x) * 0.18;
-    ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x));
+    ball.x += (targetX - ball.x) * 0.2;
   }
 
   if (ball.y >= bottomY) {
