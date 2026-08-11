@@ -684,19 +684,21 @@ function initPlinko() {
       const dx = ball.x - peg.x;
       const dy = ball.y - peg.y;
       const dist = Math.hypot(dx, dy);
-      const minDist = pegRadius + BALL_RADIUS - 1;
+      const minDist = pegRadius + BALL_RADIUS + 4; // Увеличено расстояние для отскока
       if (dist < minDist && dist > 0.001) {
         const nx = dx / dist;
         const ny = dy / dist;
         ball.x = peg.x + nx * minDist;
         ball.y = peg.y + ny * minDist;
-        ball.vy *= -0.28;
+
+        // Исправление отскока, чтобы шарик не застревал и летел вниз
+        ball.vy = Math.abs(ball.vy) * 0.35 + 30; // Гарантированный положительный vy
+
         // Направление определяется целью, а не случайностью: шарик идёт
         // в сторону серверного слота с небольшим разбросом для естественности.
         const goRight = targetX > ball.x;
-        const jitter = (Math.random() - 0.5) * 10;
-        ball.vx = goRight ? Math.abs(nx * 28) + jitter : -Math.abs(nx * 28) + jitter;
-        ball.vy += 24;
+        const jitter = (Math.random() - 0.5) * 8;
+        ball.vx = goRight ? Math.abs(nx * 22) + jitter : -Math.abs(nx * 22) + jitter;
         playTone(500 + Math.random() * 300, 0.03, 0.018);
       }
     }
@@ -705,14 +707,17 @@ function initPlinko() {
     if (ball.y >= bottomY) {
       ball.y = bottomY;
       const slotWidth2 = boardWidth / SLOT_COUNT;
-      ball.actualBucket = ball.bucket;
-      ball.x = slotWidth2 * (ball.bucket + 0.5);
-      ball.multiplier = Number(ball.multiplier);
-      ball.payout = Number(ball.payout);
-      ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
-      ball.vy = 0;
-      ball.vx = 0;
-      ball.settled = true;
+      // Фиксируем шарик в слотах, чтобы избежать телепортации
+      if (!ball.settled) {
+        ball.actualBucket = ball.bucket;
+        ball.x = slotWidth2 * (ball.bucket + 0.5);
+        ball.multiplier = Number(ball.multiplier);
+        ball.payout = Number(ball.payout);
+        ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
+        ball.vy = 0;
+        ball.vx = 0;
+        ball.settled = true;
+      }
     }
   }
 
