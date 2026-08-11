@@ -667,95 +667,142 @@ function initPlinko() {
     }
   }
 
+  // Точки, сгруппированные по рядам: rows[row] = [{x, y}, ...].
+  // Каскадная анимация ведёт шарик строго через точку каждого ряда вниз.
+  function pegsByRow() {
+    const rows = [];
+    for (let row = 0; row < ROWS; row += 1) {
+      const count = row + 3;
+      const width = (count - 1) * colGap;
+      const startX = boardWidth / 2 - width / 2;
+      const points = [];
+      for (let col = 0; col < count; col += 1) {
+        points.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
+      }
+      rows.push(points);
+    }
+    return rows;
+  }
+
+  // Скорость свободного падения: спокойная, шарик долетает до низа за
+  // несколько секунд и его траектория хорошо читается глазом.
+  const PLINKO_GRAVITY = 260;
+
+  // Начать новый участок полёта: от текущей позиции шарика к точке (targetX,
+  // targetY). Параметры считаются из баллистики, поэтому шарик гарантированно
+  // долетает до следующей точки ровно — по плавной дуге.
+  function beginSegment(ball, targetX, targetY, vy0) {
+    ball.px = ball.x;
+    ball.py = ball.y;
+    ball.tx = targetX;
+    ball.ty = targetY;
+    // Лёгкий подскок вверх в момент удара делает отскок видимым, но коротким.
+    ball.vy0 = vy0 ?? -(12 + Math.random() * 16);
+    const dy = Math.max(1, targetY - ball.py);
+    // Время полёта из уравнения dy = vy0*T + g*T^2/2 (T > 0).
+    ball.segT = (-ball.vy0 + Math.sqrt(ball.vy0 * ball.vy0 + 2 * PLINKO_GRAVITY * dy)) / PLINKO_GRAVITY;
+    ball.vx = (targetX - ball.px) / ball.segT;
+    ball.segTime = 0;
+  }
+
+  function settleBall(ball) {
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    ball.actualBucket = ball.bucket;
+    ball.x = slotWidth * (ball.bucket + 0.5);
+    ball.y = bottomY;
+    ball.multiplier = Number(ball.multiplier);
+    ball.payout = Number(ball.payout);
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.settled = true;
+  }
+
+  // Удар о точку ряда: выбираем точку следующего ряда и летим к ней.
+  function onPegReached(ball) {
+    playTone(520 + Math.random() * 260, 0.03, 0.02);
+    const rows = pegsByRow();
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    const targetSlotX = slotWidth * (ball.bucket + 0.5);
+    // Ряд точки, в которую шарик только что ударился.
+    const rowIndex = Math.round((ball.ty - TOP_Y) / rowGap);
+    if (rowIndex >= ROWS - 1) {
+      // Последний ряд: финальный участок прямо в центр своего слота.
+      ball.lastSegment = 'finish';
+      beginSegment(ball, targetSlotX, bottomY, -(20 + Math.random() * 12));
+      return;
+    }
+    // Иначе выбираем точку следующего ряда. Направление ветки смешиваем
+    // со случайностью: шарик зигзагом спускается к нужному коэффициенту.
+    const nextRow = rows[rowIndex + 1];
+    const error = targetSlotX - ball.x;
+    const distanceInLanes = Math.max(-1, Math.min(1, error / colGap));
+    const pToTarget = 0.5 + 0.4 * Math.abs(distanceInLanes);
+    const goRight = error > 0;
+    let side;
+    if (Math.random() < pToTarget) side = goRight ? 1 : -1;
+    else side = goRight ? -1 : 1;
+    const lookX = ball.x + side * colGap / 2;
+    let best = nextRow[0];
+    let bestDistance = Infinity;
+    for (const point of nextRow) {
+      const distance = Math.abs(point.x - lookX);
+      if (distance < bestDistance) { bestDistance = distance; best = point; }
+    }
+    ball.lastSegment = null;
+    beginSegment(ball, best.x, best.y);
+  }
+
   function updateBall(ball, dt) {
     if (ball.settled) return;
-    // Естественное падение с обычной визуальной скоростью.
-    const gravity = 240;
-    ball.vy = Math.min(320, (ball.vy || 0) + gravity * dt);
-
-    ball.x += (ball.vx || 0) * dt;
-    ball.y += ball.vy * dt;
-    // Не даём шарику вылететь за пределы доски.
-    ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x));
-    ball.y = Math.min(boardHeight - BALL_RADIUS, Math.max(TOP_Y - 20, ball.y));
-
-    // Удар о точку: шарик видимо отскакивает, но всегда продолжает падать
-    // вниз (vy не становится отрицательным — никаких подпрыгиваний и
-    // залипаний на точке). Небольшой "кулдаун" на повторный удар о ту же
-    // точку невидим и просто не даёт шарику дребезжать на одном peg.
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const targetX = slotWidth * (ball.bucket + 0.5);
-    const pegs = pegPositions();
-    ball.pegHitCooldown = Math.max(0, (ball.pegHitCooldown || 0) - dt);
-    for (let pegIndex = 0; pegIndex < pegs.length; pegIndex += 1) {
-      const peg = pegs[pegIndex];
-      if (pegIndex === ball.lastHitPeg && ball.pegHitCooldown > 0) continue;
-      const dx = ball.x - peg.x;
-      const dy = ball.y - peg.y;
-      const dist = Math.hypot(dx, dy);
-      const minDist = pegRadius + BALL_RADIUS;
-      if (dist < minDist && dist > 0.001) {
-        const nx = dx / dist;
-        const ny = dy / dist;
-        // Выталкиваем из точки и слегка уводим в сторону целевого слота,
-        // чтобы шарик соскальзывал вбок, а не зависал на верхушке peg.
-        const side = targetX > ball.x ? 1 : -1;
-        ball.x = peg.x + nx * (minDist + 1) + side * 3;
-        ball.y = peg.y + ny * (minDist + 1);
-
-        // Отражение скорости от точки с затуханием.
-        const dot = ball.vx * nx + ball.vy * ny;
-        ball.vx -= 1.4 * dot * nx;
-        ball.vy = Math.max(Math.abs(ball.vy - 0.3 * dot * ny), 45);
-
-        // Лёгкое направление к целевому слоту + небольшой разброс,
-        // чтобы шарик шёл к нужному коэффициенту.
-        const jitter = (Math.random() - 0.5) * 10;
-        ball.vx = (Math.abs(ball.vx) * 0.7 + 12) * side + jitter;
-        ball.lastHitPeg = pegIndex;
-        ball.pegHitCooldown = 0.1;
-        playTone(500 + Math.random() * 300, 0.03, 0.018);
-      }
+    ball.segTime += dt;
+    if (ball.segTime >= ball.segT) {
+      // Достигли следующей точки: шарик ударяется о peg и летит дальше.
+      ball.x = ball.tx;
+      ball.y = ball.ty;
+      onPegReached(ball);
+      return;
     }
-
-    // У самих слотов мягко ведём шарик в центр своего коэффициента,
-    // чтобы при приземлении не было резкого скачка между слотами.
+    const t = ball.segTime;
+    ball.vy = ball.vy0 + PLINKO_GRAVITY * t;
+    ball.x = ball.px + ball.vx * t;
+    ball.y = ball.py + ball.vy0 * t + 0.5 * PLINKO_GRAVITY * t * t;
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    if (ball.y > bottomY - rowGap * 1.6) {
-      ball.x += (targetX - ball.x) * 0.2;
-    }
-
-    if (ball.y >= bottomY) {
-      ball.y = bottomY;
-      // Фиксируем шарик ровно в центре серверного слота: это исключает
-      // «телепортацию» между коэффициентами после приземления.
-      ball.actualBucket = ball.bucket;
-      ball.x = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
-      ball.multiplier = Number(ball.multiplier);
-      ball.payout = Number(ball.payout);
-      ball.x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS, ball.x));
-      ball.vy = 0;
-      ball.vx = 0;
-      ball.settled = true;
+    if (ball.lastSegment === 'finish' && ball.y >= bottomY) {
+      settleBall(ball);
     }
   }
 
   function dropBall(bucket, multiplier, payout) {
-    // Каждый шарик появляется над центром поля — в диапазоне первых трёх
-    // точек (первый ряд: 3, 4 и 5). Результат bucket уже выбран сервером,
-    // но стартовая позиция не зависит от него.
-    const firstRow = pegPositions().slice(0, 3);
-    const leftPoint = firstRow[0]?.x ?? boardWidth / 2 - colGap;
-    const rightPoint = firstRow.at(-1)?.x ?? boardWidth / 2 + colGap;
-    const x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS,
-      leftPoint + Math.random() * (rightPoint - leftPoint)));
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    // Шарик стартует со случайным горизонтальным импульсом — без привязки
-    // к целевому слоту. Направление определяется только при ударах о peg.
+    // Стартуем над случайной точкой первого ряда — первый удар гарантирован.
+    const rows = pegsByRow();
+    const firstRow = rows[0];
+    const startPeg = firstRow[Math.floor(Math.random() * firstRow.length)];
+    const startX = startPeg.x + (Math.random() * 6 - 3);
+
     const ball = {
-      x, y: TOP_Y - Math.max(18, rowGap * 0.55), vx: (Math.random() - 0.5) * 22, vy: 0,
-      settled: false, bucket: bucketIndex, multiplier, payout: Number(payout)
+      x: startX,
+      y: TOP_Y - 16,
+      px: startX,
+      py: TOP_Y - 16,
+      tx: 0, ty: 0,
+      vx: 0, vy: 0, vy0: 0,
+      segTime: 0, segT: 1,
+      settled: false,
+      bucket: bucketIndex,
+      multiplier,
+      payout: Number(payout)
     };
+    // Первый участок: от старта вниз на точку первого ряда.
+    let best = firstRow[0];
+    let bestDistance = Infinity;
+    for (const point of firstRow) {
+      const distance = Math.abs(point.x - startX);
+      if (distance < bestDistance) { bestDistance = distance; best = point; }
+    }
+    beginSegment(ball, best.x, best.y, 0);
     balls.push(ball);
     return ball;
   }

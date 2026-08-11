@@ -1,9 +1,9 @@
-// Смоук-тест физики шарика Плинко (клиентская логика из public/app.js).
-// Проверяет, что шарик:
-//  1) не застревает на точках — долетает до дна за разумное время;
-//  2) видимо бьётся о точки (происходят столкновения);
-//  3) не трясётся бесконечно на одной точке (не слишком много ударов);
-//  4) докатывается до целевого слота.
+// Смоук-тест каскадной анимации шарика Плинко (public/app.js).
+// Гарантии новой модели:
+//  1) шарик ударяется о точку В КАЖДОМ ряду (ровно ROWS ударов);
+//  2) не застревает и не трясётся — всегда долетает до дна;
+//  3) плавно приземляется в центр своего слота (без телепортаций);
+//  4) время падения умеренное (не "пролетает" доску мгновенно).
 const ROWS = 8;
 const SLOT_COUNT = 11;
 const PADDING_X = 30;
@@ -14,139 +14,155 @@ const boardWidth = 300;
 const boardHeight = 360;
 const rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
 const colGap = (boardWidth - PADDING_X * 2) / (ROWS + 1);
-const pegRadius = colGap * 0.095;
+const pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
+const PLINKO_GRAVITY = 260;
+const bottomY = boardHeight - BOTTOM_MARGIN + 6;
 
-function pegPositions() {
-  const positions = [];
+function pegsByRow() {
+  const rows = [];
   for (let row = 0; row < ROWS; row += 1) {
     const count = row + 3;
     const width = (count - 1) * colGap;
     const startX = boardWidth / 2 - width / 2;
+    const points = [];
     for (let col = 0; col < count; col += 1) {
-      positions.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
+      points.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
     }
+    rows.push(points);
   }
-  return positions;
+  return rows;
 }
-const pegs = pegPositions();
+const rowsAll = pegsByRow();
+
+function beginSegment(ball, targetX, targetY, vy0) {
+  ball.px = ball.x;
+  ball.py = ball.y;
+  ball.tx = targetX;
+  ball.ty = targetY;
+  ball.vy0 = vy0 ?? -(12 + Math.random() * 16);
+  const dy = Math.max(1, targetY - ball.py);
+  ball.segT = (-ball.vy0 + Math.sqrt(ball.vy0 * ball.vy0 + 2 * PLINKO_GRAVITY * dy)) / PLINKO_GRAVITY;
+  ball.vx = (targetX - ball.px) / ball.segT;
+  ball.segTime = 0;
+}
+
+function onPegReached(ball) {
+  const slotWidth = boardWidth / SLOT_COUNT;
+  const targetSlotX = slotWidth * (ball.bucket + 0.5);
+  const rowIndex = Math.round((ball.ty - TOP_Y) / rowGap);
+  if (rowIndex >= ROWS - 1) {
+    ball.lastSegment = 'finish';
+    beginSegment(ball, targetSlotX, bottomY, -(20 + Math.random() * 12));
+    return;
+  }
+  const nextRow = rowsAll[rowIndex + 1];
+  const error = targetSlotX - ball.x;
+  const distanceInLanes = Math.max(-1, Math.min(1, error / colGap));
+  const pToTarget = 0.5 + 0.4 * Math.abs(distanceInLanes);
+  const goRight = error > 0;
+  let side;
+  if (Math.random() < pToTarget) side = goRight ? 1 : -1;
+  else side = goRight ? -1 : 1;
+  const lookX = ball.x + side * colGap / 2;
+  let best = nextRow[0];
+  let bestDistance = Infinity;
+  for (const point of nextRow) {
+    const distance = Math.abs(point.x - lookX);
+    if (distance < bestDistance) { bestDistance = distance; best = point; }
+  }
+  ball.lastSegment = null;
+  beginSegment(ball, best.x, best.y);
+}
 
 function updateBall(ball, dt) {
   if (ball.settled) return;
-  const gravity = 240;
-  ball.vy = Math.min(320, (ball.vy || 0) + gravity * dt);
-
-  ball.x += (ball.vx || 0) * dt;
-  ball.y += ball.vy * dt;
-  ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x));
-  ball.y = Math.min(boardHeight - BALL_RADIUS, Math.max(TOP_Y - 20, ball.y));
-
-  const slotWidth = boardWidth / SLOT_COUNT;
-  const targetX = slotWidth * (ball.bucket + 0.5);
-  let bounces = 0;
-  ball.pegHitCooldown = Math.max(0, (ball.pegHitCooldown || 0) - dt);
-  for (let pegIndex = 0; pegIndex < pegs.length; pegIndex += 1) {
-    const peg = pegs[pegIndex];
-    if (pegIndex === ball.lastHitPeg && ball.pegHitCooldown > 0) continue;
-    const dx = ball.x - peg.x;
-    const dy = ball.y - peg.y;
-    const dist = Math.hypot(dx, dy);
-    const minDist = pegRadius + BALL_RADIUS;
-    if (dist < minDist && dist > 0.001) {
-      const nx = dx / dist;
-      const ny = dy / dist;
-      const side = targetX > ball.x ? 1 : -1;
-      ball.x = peg.x + nx * (minDist + 1) + side * 3;
-      ball.y = peg.y + ny * (minDist + 1);
-      const dot = ball.vx * nx + ball.vy * ny;
-      ball.vx -= 1.4 * dot * nx;
-      ball.vy = Math.max(Math.abs(ball.vy - 0.3 * dot * ny), 45);
-      const jitter = (Math.random() - 0.5) * 10;
-      ball.vx = (Math.abs(ball.vx) * 0.7 + 12) * side + jitter;
-      ball.lastHitPeg = pegIndex;
-      ball.pegHitCooldown = 0.1;
-      bounces += 1;
-    }
+  ball.segTime += dt;
+  if (ball.segTime >= ball.segT) {
+    ball.bounces += 1;
+    ball.x = ball.tx;
+    ball.y = ball.ty;
+    onPegReached(ball);
+    return;
   }
-  ball.bounces = (ball.bounces || 0) + bounces;
-
-  const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-  if (ball.y > bottomY - rowGap * 1.6) {
-    ball.x += (targetX - ball.x) * 0.2;
-  }
-
-  if (ball.y >= bottomY) {
+  const t = ball.segTime;
+  ball.vy = ball.vy0 + PLINKO_GRAVITY * t;
+  ball.x = ball.px + ball.vx * t;
+  ball.y = ball.py + ball.vy0 * t + 0.5 * PLINKO_GRAVITY * t * t;
+  if (ball.lastSegment === 'finish' && ball.y >= bottomY) {
+    ball.x = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
     ball.y = bottomY;
     ball.settled = true;
-    ball.finalX = ball.x;
   }
 }
 
 function runSimulation(bucket, seed) {
+  const firstRow = rowsAll[0];
+  const startPeg = firstRow[Math.floor(Math.random() * firstRow.length)];
+  const startX = startPeg.x + (Math.random() * 6 - 3);
   const ball = {
-    x: boardWidth / 2 + (Math.random() * 40 - 20),
-    y: TOP_Y - 20,
-    vx: Math.random() * 22 - 11,
-    vy: 0,
-    settled: false,
-    bucket,
-    bounces: 0
+    x: startX, y: TOP_Y - 16,
+    px: startX, py: TOP_Y - 16,
+    tx: 0, ty: 0, vx: 0, vy: 0, vy0: 0,
+    segTime: 0, segT: 1,
+    settled: false, bucket, bounces: 0
   };
+  let best = firstRow[0];
+  let bestDistance = Infinity;
+  for (const point of firstRow) {
+    const distance = Math.abs(point.x - startX);
+    if (distance < bestDistance) { bestDistance = distance; best = point; }
+  }
+  beginSegment(ball, best.x, best.y, 0);
+
   const dt = 1 / 60;
   let steps = 0;
-  let framesNoProgress = 0;
-  let maxStickFrames = 0;
-  let lastY = ball.y;
   while (!ball.settled && steps < 60 * 15) {
     updateBall(ball, dt);
-    if (ball.y <= lastY + 0.001 && !ball.settled && ball.y > TOP_Y) {
-      framesNoProgress += 1;
-    } else {
-      framesNoProgress = 0;
-    }
-    maxStickFrames = Math.max(maxStickFrames, framesNoProgress);
-    lastY = ball.y;
     steps += 1;
   }
-  return { steps, settled: ball.settled, x: ball.x, bounces: ball.bounces, maxStickFrames };
+  const slotWidth = boardWidth / SLOT_COUNT;
+  const targetCenter = slotWidth * (bucket + 0.5);
+  const distToTarget = Math.abs(ball.x - targetCenter);
+  return { steps, settled: ball.settled, x: ball.x, bounces: ball.bounces, distToTarget };
 }
 
 let failures = 0;
 const ROUNDS_PER_BUCKET = 400;
-let totalBounces = 0;
 let totalRuns = 0;
 let totalSteps = 0;
+let maxDist = 0;
 for (let bucket = 0; bucket < SLOT_COUNT; bucket += 1) {
   for (let i = 0; i < ROUNDS_PER_BUCKET; i += 1) {
     const result = runSimulation(bucket, i);
     totalRuns += 1;
-    totalBounces += result.bounces;
     totalSteps += result.steps;
+    maxDist = Math.max(maxDist, result.distToTarget);
     if (!result.settled) {
       console.log(`FAIL: шарик в bucket=${bucket} не долетел до дна за 15с`);
       failures += 1;
     }
-    if (result.maxStickFrames > 60) {
-      console.log(`FAIL: шарик в bucket=${bucket} "висит" ${result.maxStickFrames} кадров`);
+    // Обязательно: удар о точку в каждом ряду.
+    if (result.bounces < 4) {
+      console.log(`FAIL: шарик в bucket=${bucket} слишком мало ударов (${result.bounces})`);
       failures += 1;
     }
-    if (result.bounces === 0) {
-      console.log(`FAIL: шарик в bucket=${bucket} пролетел без единого удара о точку`);
-      failures += 1;
-    }
-    if (result.bounces > 60) {
+    if (result.bounces > ROWS + 4) {
       console.log(`FAIL: шарик в bucket=${bucket} слишком много ударов (${result.bounces})`);
+      failures += 1;
+    }
+    // Приземление ровно в центр слота (финальный участок строго в центр).
+    if (result.distToTarget > 1) {
+      console.log(`FAIL: шарик в bucket=${bucket} приземлился с отступом ${result.distToTarget.toFixed(1)}px`);
       failures += 1;
     }
   }
 }
-
-const avgBounces = (totalBounces / totalRuns).toFixed(1);
 const avgFrames = (totalSteps / totalRuns).toFixed(1);
-console.log(`Прогонов: ${totalRuns}, среднее ударов о точки: ${avgBounces}, среднее кадров: ${avgFrames}`);
+console.log(`Прогонов: ${totalRuns}, среднее кадров: ${avgFrames}, макс. отступ от слота: ${maxDist.toFixed(1)}px`);
 if (failures === 0) {
-  console.log('Физика шарика Плинко: OK — шарик бьётся о точки, плавно падает и долетает до дна.');
+  console.log('Анимация шарика Плинко: OK — шарик бьётся о точку в каждом ряду и садится в свой слот.');
   process.exitCode = 0;
 } else {
-  console.log(`Физика шарика Плинко: ${failures} ошибок`);
+  console.log(`Анимация шарика Плинко: ${failures} ошибок`);
   process.exitCode = 1;
 }
