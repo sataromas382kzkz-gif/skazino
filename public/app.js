@@ -671,17 +671,14 @@ function initPlinko() {
     if (ball.settled) return;
     const gravity = 420;
     ball.vy = Math.min(300, (ball.vy || 0) + gravity * dt);
-    // Мягкое направление к серверному слоту: чем ниже шарик, тем сильнее
-    // лёгкое притяжение. Сила достаточна, чтобы визуальный путь совпадал
-    // с серверным результатом, но слишком мала, чтобы быть заметной.
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const targetX = slotWidth * (ball.bucket + 0.5);
-    const progress = Math.min(1, Math.max(0, (ball.y - TOP_Y) / (boardHeight - TOP_Y)));
-    const gentleGuide = (targetX - ball.x) * 0.35 * progress * progress;
-    ball.vx += gentleGuide;
     ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x + ball.vx * dt));
     ball.y += ball.vy * dt;
 
+    // При столкновении с peg шарик отскакивает в сторону, необходимую
+    // для достижения серверного слота. Между peg нет никаких сил —
+    // шарик падает свободно, а направление задаётся только при ударе.
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const targetX = slotWidth * (ball.bucket + 0.5);
     const pegs = pegPositions();
     for (const peg of pegs) {
       const dx = ball.x - peg.x;
@@ -694,7 +691,11 @@ function initPlinko() {
         ball.x = peg.x + nx * minDist;
         ball.y = peg.y + ny * minDist;
         ball.vy *= -0.28;
-        ball.vx = nx * 28 + (Math.random() - 0.5) * 16;
+        // Направление определяется целью, а не случайностью: шарик идёт
+        // в сторону серверного слота с небольшим разбросом для естественности.
+        const goRight = targetX > ball.x;
+        const jitter = (Math.random() - 0.5) * 10;
+        ball.vx = goRight ? Math.abs(nx * 28) + jitter : -Math.abs(nx * 28) + jitter;
         ball.vy += 24;
         playTone(500 + Math.random() * 300, 0.03, 0.018);
       }
@@ -725,14 +726,10 @@ function initPlinko() {
     const x = Math.max(BALL_RADIUS, Math.min(boardWidth - BALL_RADIUS,
       leftPoint + Math.random() * (rightPoint - leftPoint)));
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    // Мягкое начальное направление: шарик получает лёгкий толчок в сторону
-    // целевого слота ещё при появлении. Это выглядит как естественное начало
-    // траектории, а не притяжение во время падения.
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const targetX = slotWidth * (bucketIndex + 0.5);
-    const initialBias = (targetX - x) * 0.06;
+    // Шарик стартует со случайным горизонтальным импульсом — без привязки
+    // к целевому слоту. Направление определяется только при ударах о peg.
     const ball = {
-      x, y: TOP_Y - Math.max(18, rowGap * 0.55), vx: (Math.random() - 0.5) * 22 + initialBias, vy: 0,
+      x, y: TOP_Y - Math.max(18, rowGap * 0.55), vx: (Math.random() - 0.5) * 22, vy: 0,
       settled: false, bucket: bucketIndex, multiplier, payout: Number(payout)
     };
     balls.push(ball);
