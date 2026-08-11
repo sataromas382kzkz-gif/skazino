@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test:rocket": "node rocket-smoke-test.mjs",
-    "test:plinko": "node plinko.test.mjs"
+    "test:plinko": "node plinko.test.mjs",
+    "test:plinko-physics": "node plinko-physics-test.mjs"
   },
   "dependencies": {
     "@vercel/postgres": "^0.10.0",
