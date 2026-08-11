@@ -713,6 +713,12 @@ function initPlinko() {
     ball.segTime = 0;
   }
 
+  // Получить боковую точку удара о точку-центр (px,py) со стороны прилёта.
+  // Возвращает цель на окружности точки. side: -1 — подходить слева, 1 — справа.
+  function pegSidePoint(px, py, side) {
+    return { x: px + side * pegContactRadius(), y: py };
+  }
+
   function settleBall(ball) {
     const slotWidth = boardWidth / SLOT_COUNT;
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
@@ -744,9 +750,10 @@ function initPlinko() {
     return -1;
   }
 
-  // Жёсткий удар о точку: шарик уже остановлен на её поверхности; здесь
-  // выбираем следующую цель и задаём новое направление отскока.
-  function onPegHit(ball, pegX, pegY) {
+  // Жёсткий удар о точку: шарик останавливается на ЕСТЕСТВЕННОЙ точке касания
+  // (точке пересечения траектории с окружностью, без телепорта), затем уходит
+  // вниз-вбок к следующей точке.
+  function onPegHit(ball, hitX, hitY, pegX, pegY) {
     playTone(520 + Math.random() * 260, 0.03, 0.02);
     const rows = pegsByRow();
     const slotWidth = boardWidth / SLOT_COUNT;
@@ -754,14 +761,13 @@ function initPlinko() {
     const targetSlotX = slotWidth * (ball.bucket + 0.5);
     // Ряд точки, в которую шарик только что ударился.
     const rowIndex = Math.round((pegY - TOP_Y) / rowGap);
+    ball.x = hitX;
+    ball.y = hitY;
     if (rowIndex >= ROWS - 1) {
-      // Последний ряд: шарик "скатывается" с БОКА точки в сторону слота —
-      // путь вниз отходит от точки и не пересекает её жёсткую зону.
-      const dirSign = targetSlotX >= pegX ? 1 : -1;
-      ball.x = pegX + dirSign * pegContactRadius();
-      ball.y = pegY;
+      // Последний ряд: от точки касания скатываемся вбок в сторону слота —
+      // естественно, без телепорта, траектория уходит от поверхности вниз.
       ball.finalStage = 1;
-      beginSegment(ball, ball.x, bottomY - 28, 0, false);
+      beginSegment(ball, ball.x + (targetSlotX >= pegX ? pegContactRadius() : -pegContactRadius()), bottomY - 28, 0, false);
       return;
     }
     // Иначе выбираем точку следующего ряда. Направление ветки — строго от
@@ -783,11 +789,8 @@ function initPlinko() {
       const distance = Math.abs(point.x - lookX);
       if (distance < bestDistance) { bestDistance = distance; best = point; }
     }
-    // Шарик отскакивает от БОКА точки в направлении следующей цели — траектория
-    // к ней идёт по касательной и никогда не заходит внутрь жёсткой зоны.
-    const dirSign = best.x >= pegX ? 1 : -1;
-    ball.x = pegX + dirSign * pegContactRadius();
-    ball.y = pegY;
+    // Летим к ЦЕНТРУ следующей точки — удар о её окружность будет обработан
+    // в updateBall на естественной точке касания. Телепорта нет.
     beginSegment(ball, best.x, best.y, undefined, true);
   }
 
@@ -799,34 +802,54 @@ function initPlinko() {
     ball.vy = ball.vy0 + PLINKO_GRAVITY * t1;
     ball.x = ball.px + ball.vx * t1;
     ball.y = ball.py + ball.vy0 * t1 + 0.5 * PLINKO_GRAVITY * t1 * t1;
+    const px0 = ball.px + ball.vx * t0;
+    const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
 
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    if (!ball.targetIsPeg) {
-      // Финальный спуск в свой слот.
-      if (ball.finalStage === 1 && ball.y >= ball.ty) {
-        // Конец вертикального участка: плавный "докат" по дну к слоту.
-        const slotWidth = boardWidth / SLOT_COUNT;
-        const targetSlotX = slotWidth * (ball.bucket + 0.5);
-        ball.finalStage = 2;
-        beginSegment(ball, targetSlotX, bottomY, 0, false);
-        return;
-      }
-      if (ball.y >= bottomY) {
-        settleBall(ball);
+
+    if (ball.targetIsPeg) {
+      // Жёсткий удар о ЦЕЛЕВУЮ точку: траектория этого кадра проверяется
+      // против окружности точки, и шарик останавливается на естественной точке
+      // касания (пересечение дуги с окружностью) — без телепортации.
+      const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, pegContactRadius());
+      if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= pegContactRadius()) {
+        // Точка касания — куда шарик действительно попал в этом кадре.
+        const cx = px0 + (ball.x - px0) * (contact >= 0 ? contact : 1);
+        const cy = py0 + (ball.y - py0) * (contact >= 0 ? contact : 1);
+        ball.bounces = (ball.bounces || 0) + 1;
+        onPegHit(ball, cx, cy, ball.tx, ball.ty);
       }
       return;
     }
 
-    // Жёсткий контакт с ЦЕЛЕВОЙ точкой: траектория этого кадра проверяется
-    // против окружности точки, и шарик останавливается на её поверхности.
-    const px0 = ball.px + ball.vx * t0;
-    const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
-    const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, pegContactRadius());
-    if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= pegContactRadius()) {
+    // Финальный спуск к слоту: шарик проверяется против ВСЕХ точек, чтобы
+    // по пути вниз-вбок физически не проникать ни в одну из них. Если задел —
+    // отскакивает от неё (шум, смена направления), как от обычной точки.
+    const pegs = pegsByRow().flat();
+    let hitT = -1;
+    let hitPeg = null;
+    for (const peg of pegs) {
+      const t = firstSegmentCircleHit(px0, py0, ball.x, ball.y, peg.x, peg.y, pegContactRadius());
+      if (t >= 0 && (hitT < 0 || t < hitT)) { hitT = t; hitPeg = peg; }
+    }
+    if (hitPeg) {
+      const cx = px0 + (ball.x - px0) * hitT;
+      const cy = py0 + (ball.y - py0) * hitT;
       ball.bounces = (ball.bounces || 0) + 1;
-      // onPegHit размещает шарик на боку точки — отскок идёт по касательной,
-      // поэтому ни через одну точку шарик не проходит.
-      onPegHit(ball, ball.tx, ball.ty);
+      onPegHit(ball, cx, cy, hitPeg.x, hitPeg.y);
+      return;
+    }
+
+    if (ball.finalStage === 1 && ball.y >= ball.ty) {
+      // Конец вертикального участка: плавный "докат" по дну к слоту.
+      const slotWidth = boardWidth / SLOT_COUNT;
+      const targetSlotX = slotWidth * (ball.bucket + 0.5);
+      ball.finalStage = 2;
+      beginSegment(ball, targetSlotX, bottomY, 0, false);
+      return;
+    }
+    if (ball.y >= bottomY) {
+      settleBall(ball);
     }
   }
 

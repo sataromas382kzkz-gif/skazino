@@ -69,15 +69,14 @@ function firstSegmentCircleHit(ax, ay, bx, by, cx, cy, r) {
   return -1;
 }
 
-function onPegHit(ball, pegX, pegY) {
+function onPegHit(ball, hitX, hitY, pegX, pegY) {
   const targetSlotX = slotWidth * (ball.bucket + 0.5);
   const rowIndex = Math.round((pegY - TOP_Y) / rowGap);
+  ball.x = hitX;
+  ball.y = hitY;
   if (rowIndex >= ROWS - 1) {
-    const dirSign = targetSlotX >= pegX ? 1 : -1;
-    ball.x = pegX + dirSign * contactRadius;
-    ball.y = pegY;
     ball.finalStage = 1;
-    beginSegment(ball, ball.x, bottomY - 28, 0, false);
+    beginSegment(ball, ball.x + (targetSlotX >= pegX ? contactRadius : -contactRadius), bottomY - 28, 0, false);
     return;
   }
   const nextRow = rowsAll[rowIndex + 1];
@@ -95,9 +94,6 @@ function onPegHit(ball, pegX, pegY) {
     const distance = Math.abs(point.x - lookX);
     if (distance < bestDistance) { bestDistance = distance; best = point; }
   }
-  const dirSign = best.x >= pegX ? 1 : -1;
-  ball.x = pegX + dirSign * contactRadius;
-  ball.y = pegY;
   beginSegment(ball, best.x, best.y, undefined, true);
 }
 
@@ -109,28 +105,45 @@ function updateBall(ball, dt) {
   ball.vy = ball.vy0 + PLINKO_GRAVITY * t1;
   ball.x = ball.px + ball.vx * t1;
   ball.y = ball.py + ball.vy0 * t1 + 0.5 * PLINKO_GRAVITY * t1 * t1;
+  const px0 = ball.px + ball.vx * t0;
+  const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
 
-  if (!ball.targetIsPeg) {
-    if (ball.finalStage === 1 && ball.y >= ball.ty) {
-      const targetSlotX = slotWidth * (ball.bucket + 0.5);
-      ball.finalStage = 2;
-      beginSegment(ball, targetSlotX, bottomY, 0, false);
-      return;
-    }
-    if (ball.y >= bottomY) {
-      ball.x = slotWidth * (ball.bucket + 0.5);
-      ball.y = bottomY;
-      ball.settled = true;
+  if (ball.targetIsPeg) {
+    const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, contactRadius);
+    if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= contactRadius) {
+      const cx = px0 + (ball.x - px0) * (contact >= 0 ? contact : 1);
+      const cy = py0 + (ball.y - py0) * (contact >= 0 ? contact : 1);
+      ball.bounces += 1;
+      onPegHit(ball, cx, cy, ball.tx, ball.ty);
     }
     return;
   }
 
-  const px0 = ball.px + ball.vx * t0;
-  const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
-  const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, contactRadius);
-  if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= contactRadius) {
+  // Финальный спуск: проверка контакта с ЛЮБОЙ точкой (жёсткий обход).
+  let hitT = -1;
+  let hitPeg = null;
+  for (const peg of flatPegs) {
+    const t = firstSegmentCircleHit(px0, py0, ball.x, ball.y, peg.x, peg.y, contactRadius);
+    if (t >= 0 && (hitT < 0 || t < hitT)) { hitT = t; hitPeg = peg; }
+  }
+  if (hitPeg) {
+    const cx = px0 + (ball.x - px0) * hitT;
+    const cy = py0 + (ball.y - py0) * hitT;
     ball.bounces += 1;
-    onPegHit(ball, ball.tx, ball.ty);
+    onPegHit(ball, cx, cy, hitPeg.x, hitPeg.y);
+    return;
+  }
+
+  if (ball.finalStage === 1 && ball.y >= ball.ty) {
+    const targetSlotX = slotWidth * (ball.bucket + 0.5);
+    ball.finalStage = 2;
+    beginSegment(ball, targetSlotX, bottomY, 0, false);
+    return;
+  }
+  if (ball.y >= bottomY) {
+    ball.x = slotWidth * (ball.bucket + 0.5);
+    ball.y = bottomY;
+    ball.settled = true;
   }
 }
 
