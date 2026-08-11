@@ -69,14 +69,15 @@ function firstSegmentCircleHit(ax, ay, bx, by, cx, cy, r) {
   return -1;
 }
 
-function onPegHit(ball, hitX, hitY, pegX, pegY) {
+function onPegHit(ball, pegX, pegY) {
   const targetSlotX = slotWidth * (ball.bucket + 0.5);
   const rowIndex = Math.round((pegY - TOP_Y) / rowGap);
-  ball.x = hitX;
-  ball.y = hitY;
   if (rowIndex >= ROWS - 1) {
+    const dirSign = targetSlotX >= pegX ? 1 : -1;
+    ball.x = pegX + dirSign * contactRadius;
+    ball.y = pegY;
     ball.finalStage = 1;
-    beginSegment(ball, ball.x + (targetSlotX >= pegX ? contactRadius : -contactRadius), bottomY - 28, 0, false);
+    beginSegment(ball, ball.x, bottomY - 28, 0, false);
     return;
   }
   const nextRow = rowsAll[rowIndex + 1];
@@ -94,6 +95,9 @@ function onPegHit(ball, hitX, hitY, pegX, pegY) {
     const distance = Math.abs(point.x - lookX);
     if (distance < bestDistance) { bestDistance = distance; best = point; }
   }
+  const dirSign = best.x >= pegX ? 1 : -1;
+  ball.x = pegX + dirSign * contactRadius;
+  ball.y = pegY;
   beginSegment(ball, best.x, best.y, undefined, true);
 }
 
