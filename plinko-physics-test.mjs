@@ -109,45 +109,33 @@ function updateBall(ball, dt) {
   ball.vy = ball.vy0 + PLINKO_GRAVITY * t1;
   ball.x = ball.px + ball.vx * t1;
   ball.y = ball.py + ball.vy0 * t1 + 0.5 * PLINKO_GRAVITY * t1 * t1;
-  const px0 = ball.px + ball.vx * t0;
-  const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
 
-  if (ball.targetIsPeg) {
-    const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, contactRadius);
-    if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= contactRadius) {
-      const cx = px0 + (ball.x - px0) * (contact >= 0 ? contact : 1);
-      const cy = py0 + (ball.y - py0) * (contact >= 0 ? contact : 1);
-      ball.bounces += 1;
-      onPegHit(ball, cx, cy, ball.tx, ball.ty);
+  if (!ball.targetIsPeg) {
+    // Финальный спуск в свой слот: вертикальная траектория от бока последней
+    // точки не пересекает ни свою точку, ни соседние — отскоков не появляется.
+    if (ball.finalStage === 1 && ball.y >= ball.ty) {
+      const targetSlotX = slotWidth * (ball.bucket + 0.5);
+      ball.finalStage = 2;
+      beginSegment(ball, targetSlotX, bottomY, 0, false);
+      return;
+    }
+    if (ball.y >= bottomY) {
+      ball.x = slotWidth * (ball.bucket + 0.5);
+      ball.y = bottomY;
+      ball.settled = true;
     }
     return;
   }
 
-  // Финальный спуск: проверка контакта с ЛЮБОЙ точкой (жёсткий обход).
-  let hitT = -1;
-  let hitPeg = null;
-  for (const peg of flatPegs) {
-    const t = firstSegmentCircleHit(px0, py0, ball.x, ball.y, peg.x, peg.y, contactRadius);
-    if (t >= 0 && (hitT < 0 || t < hitT)) { hitT = t; hitPeg = peg; }
-  }
-  if (hitPeg) {
-    const cx = px0 + (ball.x - px0) * hitT;
-    const cy = py0 + (ball.y - py0) * hitT;
-    ball.bounces += 1;
-    onPegHit(ball, cx, cy, hitPeg.x, hitPeg.y);
-    return;
-  }
-
-  if (ball.finalStage === 1 && ball.y >= ball.ty) {
-    const targetSlotX = slotWidth * (ball.bucket + 0.5);
-    ball.finalStage = 2;
-    beginSegment(ball, targetSlotX, bottomY, 0, false);
-    return;
-  }
-  if (ball.y >= bottomY) {
-    ball.x = slotWidth * (ball.bucket + 0.5);
-    ball.y = bottomY;
-    ball.settled = true;
+  // Жёсткий контакт с ЦЕЛЕВОЙ точкой.
+  const px0 = ball.px + ball.vx * t0;
+  const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
+  const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, contactRadius);
+  if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= contactRadius) {
+    ball.bounces = (ball.bounces || 0) + 1;
+    // onPegHit размещает шарик на боку точки — отскок идёт по касательной,
+    // поэтому ни через одну точку шарик не проходит.
+    onPegHit(ball, ball.tx, ball.ty);
   }
 }
 
