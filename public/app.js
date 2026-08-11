@@ -669,7 +669,7 @@ function initPlinko() {
 
   function updateBall(ball, dt) {
     if (ball.settled) return;
-    const gravity = 210; // Уменьшена скорость падения для плавности
+    const gravity = 100; // Ещё меньшая скорость падения для видимого замедления
     ball.vy = Math.min(300, (ball.vy || 0) + gravity * dt);
     ball.x = Math.min(boardWidth - BALL_RADIUS, Math.max(BALL_RADIUS, ball.x + ball.vx * dt));
     ball.y += ball.vy * dt;
