@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 import { promoCodes } from './promo-codes.js';
-import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, calculatePlinkoPayout, plinkoResult } from './plinko.js';
+import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, calculatePlinkoRoundPayout, plinkoResult } from './plinko.js';
 import { simulatePlinkoDrop } from './public/plinko-physics.js';
 
 const ADMIN_TELEGRAM_ID = '5310549412';
@@ -681,7 +681,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   const count = Math.max(1, Math.min(10, Math.floor(Number(req.body?.count) || 1)));
   const boardWidth = Math.max(200, Math.min(1000, Number(req.body?.boardWidth) || 300));
   const boardHeight = Math.max(280, Math.min(700, Number(req.body?.boardHeight) || 360));
-  if (!Number.isInteger(bet) || bet < PLINKO_MIN_BET) {
+  if (!Number.isSafeInteger(bet) || bet < PLINKO_MIN_BET) {
     return res.status(400).json({ error: `Минимальная ставка — ${PLINKO_MIN_BET} ⭐` });
   }
 
@@ -690,10 +690,11 @@ app.post('/api/plinko/drop', async (req, res) => {
   // а не заранее выбранный коэффициент для последующей анимации.
   const results = Array.from({ length: count }, () => {
     const { physicsSeed, bucket } = createWeightedPhysicalDrop(boardWidth, boardHeight);
-    const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket);
+    const { multiplier, coefficientTenths } = plinkoPayout(bet, bucket);
+    const payout = calculatePlinkoRoundPayout(bet, count, coefficientTenths);
     return { bucket, multiplier, coefficientTenths, payout, physicsSeed };
   });
-  const totalStake = bet * count;
+  const totalStake = bet;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);
   // Суммируем выплаты по каждому шару без округления промежуточного общего результата.
   // Повторно проверяем каждую строку перед изменением баланса. Это защищает от
@@ -702,7 +703,7 @@ app.post('/api/plinko/drop', async (req, res) => {
     const expected = plinkoResult(bet, result.bucket);
     if (result.coefficientTenths !== expected.coefficientTenths
       || result.multiplier !== expected.multiplier
-      || result.payout !== calculatePlinkoPayout(bet, result.coefficientTenths)) {
+      || result.payout !== calculatePlinkoRoundPayout(bet, count, result.coefficientTenths)) {
       throw new Error('Несоответствие коэффициента и выплаты Плинко');
     }
   }

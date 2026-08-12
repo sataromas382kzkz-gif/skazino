@@ -18,6 +18,25 @@ export function calculatePlinkoPayout(bet, coefficientTenths) {
   return Math.floor(totalStake * coefficient / 10);
 }
 
+// Выплата одного шарика в раунде с несколькими шариками.
+// Общая ставка делится между шариками, а дробная звезда округляется вниз,
+// поскольку баланс Telegram хранит только целые звёзды.
+export function calculatePlinkoRoundPayout(totalStake, ballCount, coefficientTenths) {
+  const stake = Number(totalStake);
+  const count = Number(ballCount);
+  const coefficient = Number(coefficientTenths);
+  if (!Number.isSafeInteger(stake) || stake < PLINKO_MIN_BET) {
+    throw new Error('Некорректная общая ставка Плинко');
+  }
+  if (!Number.isSafeInteger(count) || count < 1 || count > 10) {
+    throw new Error('Некорректное количество шариков Плинко');
+  }
+  if (!Number.isSafeInteger(coefficient) || coefficient < 0) {
+    throw new Error('Некорректный коэффициент Плинко');
+  }
+  return Math.floor(stake * coefficient / (10 * count));
+}
+
 export function plinkoResult(bet, bucket) {
   const slot = Number(bucket);
   if (!Number.isInteger(slot) || slot < 0 || slot >= PLINKO_COEFFICIENT_TENTHS.length) {

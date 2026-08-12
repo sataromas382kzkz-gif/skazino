@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   createPlinkoBall,
   plinkoMetrics,
-  plinkoPegs,
+  simulatePlinkoDrop,
   stepPlinkoBall
 } from '../plinko-physics.js';
 
@@ -12,7 +12,7 @@ const BOARDS = [[300, 360], [200, 280], [400, 420], [524, 450]];
 
 function testDrop(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
-  const prepared = { metrics, pegs: plinkoPegs(width, height) };
+  const serverDrop = simulatePlinkoDrop(width, height, seed);
   const ball = createPlinkoBall(width, height, seed);
   let steps = 0;
   let maxDisplacement = 0;
@@ -21,7 +21,7 @@ function testDrop(width, height, seed) {
   while (!ball.settled && steps < MAX_STEPS) {
     const beforeX = ball.x;
     const beforeY = ball.y;
-    stepPlinkoBall(ball, width, height, 1 / 120, prepared);
+    stepPlinkoBall(ball, width, height, 1 / 120);
     const displacement = Math.hypot(ball.x - beforeX, ball.y - beforeY);
     maxDisplacement = Math.max(maxDisplacement, displacement);
     if (!ball.settled) maxSpeedError = Math.max(maxSpeedError, Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED));
@@ -29,6 +29,7 @@ function testDrop(width, height, seed) {
   }
 
   assert.equal(ball.settled, true, `шарик не завершил падение: ${width}x${height}, seed=${seed}`);
+  assert.equal(ball.actualBucket, serverDrop.bucket, `клиентский и серверный слоты расходятся: ${width}x${height}, seed=${seed}`);
   assert.ok(ball.actualBucket >= 0 && ball.actualBucket < 11, `некорректный слот: ${ball.actualBucket}`);
   assert.ok(maxDisplacement < 8, `резкий скачок: ${maxDisplacement.toFixed(2)} px`);
   assert.ok(maxSpeedError < 1e-6, `скорость не постоянна: ошибка ${maxSpeedError}`);

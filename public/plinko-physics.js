@@ -108,6 +108,10 @@ function resolvePeg(ball, peg, contactRadius) {
   ball.lastPeg = peg;
 }
 
+function isSamePeg(first, second) {
+  return first && second && first.x === second.x && first.y === second.y;
+}
+
 function keepFallSpeed(ball) {
   const vx = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, Number(ball.vx) || 0));
   const vy = Math.max(MIN_DOWNWARD_SPEED, Number(ball.vy) || 0);
@@ -156,7 +160,7 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
     let nearestPeg = null;
     let nearestDistance = contactRadius;
     for (const peg of pegs) {
-      if (peg === ball.lastPeg) continue;
+      if (isSamePeg(peg, ball.lastPeg)) continue;
       const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
       if (distance < nearestDistance) {
         nearestDistance = distance;

@@ -1,4 +1,4 @@
-import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=120-20260812';
+import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=payout-v7-20260812';
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -700,7 +700,7 @@ function initPlinko() {
   function updateDropButton() {
     const bet = Math.max(10, Number(betInput.value) || 10);
     const ballsLabel = currentBalls === 1 ? 'шарик' : 'шариков';
-    dropButton.textContent = `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
+    dropButton.textContent = `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet} ⭐`;
   }
 
   const ballsButtons = [...document.querySelectorAll('.plinko-balls-btn')];
@@ -746,7 +746,7 @@ function initPlinko() {
         if (!Number.isInteger(tenths) || !Number.isInteger(physicsSeed) || physicsSeed < 0
           || coefficientTenths !== tenths
           || multiplier !== tenths / 10
-          || payout !== Math.floor(bet * coefficientTenths / 10)) {
+          || payout !== Math.floor(bet * coefficientTenths / (10 * ballsToDrop))) {
           throw Error('Сервер вернул несоответствующий коэффициент Плинко');
         }
         return payout;
