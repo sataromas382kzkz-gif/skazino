@@ -97,12 +97,24 @@ function resolvePeg(ball, peg, contactRadius) {
   ball.x = peg.x + nx * contactRadius;
   ball.y = peg.y + ny * contactRadius;
 
-  // После удара шарик огибает штырёк по касательной, не отскакивая вверх.
-  const tx = -ny;
-  const ty = nx;
-  const tangentSign = ty >= 0 ? 1 : -1;
-  ball.vx = tx * tangentSign * FALL_SPEED;
-  ball.vy = ty * tangentSign * FALL_SPEED;
+  // Полностью неупругое столкновение: удаляем только скорость, направленную
+  // внутрь штырька. Нормальная скорость не отражается обратно, поэтому шарик
+  // не отскакивает, а продолжает движение по касательной.
+  const normalSpeed = ball.vx * nx + ball.vy * ny;
+  let tangentVx = ball.vx - nx * Math.min(normalSpeed, 0);
+  let tangentVy = ball.vy - ny * Math.min(normalSpeed, 0);
+  let tangentLength = Math.hypot(tangentVx, tangentVy);
+
+  if (tangentLength < 1e-6 || tangentVy < 0) {
+    const tx = -ny;
+    const ty = nx;
+    const tangentSign = ty >= 0 ? 1 : -1;
+    tangentVx = tx * tangentSign;
+    tangentVy = ty * tangentSign;
+    tangentLength = 1;
+  }
+  ball.vx = tangentVx * FALL_SPEED / tangentLength;
+  ball.vy = tangentVy * FALL_SPEED / tangentLength;
   ball.bounces += 1;
   ball.impact = 1;
   ball.lastPeg = peg;
