@@ -59,14 +59,14 @@ function pegContactRadius() {
   return pegRadius + BALL_RADIUS;
 }
 
-const PLINKO_GRAVITY = 900;
-const SUBSTEPS = 24;
-const RESTITUTION = 0.35;
-const STEER_STRENGTH = 8;
-const STEER_BELOW_PEGS = 30;
-const STEER_RESCUE = 200;
-const MAX_SPEED = 1200;
-const STILL_LIMIT = 0.3;
+const PLINKO_GRAVITY = 850;
+const SUBSTEPS = 32;
+const RESTITUTION = 0.28;
+const STEER_STRENGTH = 3;
+const STEER_BELOW_PEGS = 12;
+const STEER_RESCUE = 120;
+const MAX_SPEED = 1000;
+const STILL_LIMIT = 0.35;
 
 function settleBall(ball) {
   const slotWidth = boardWidth / SLOT_COUNT;
@@ -104,8 +104,8 @@ function applyBallPhysics(ball, dt) {
   const bottomY = boardHeight - BOTTOM_MARGIN + 6;
 
   if (ball.settling) {
-    ball.x += (targetX - ball.x) * Math.min(1, 10 * dt);
-    ball.vx *= 0.7;
+    ball.x += (targetX - ball.x) * Math.min(1, 8 * dt);
+    ball.vx *= 0.6;
     ball.vy = 0;
     if (Math.abs(ball.x - targetX) < 1.2) {
       ball.x = targetX;
@@ -122,8 +122,8 @@ function applyBallPhysics(ball, dt) {
     const steer = ball.wedged ? STEER_RESCUE
       : ball.y > lastRowY ? STEER_BELOW_PEGS : STEER_STRENGTH;
     ball.vx += (targetX - ball.x) * steer * h;
-    ball.vx *= (1 - 0.8 * h);
-    if (ball.wedged) ball.vy += 500 * h;
+    ball.vx *= (1 - 0.3 * h);
+    if (ball.wedged) ball.vy += 400 * h;
     const speed = Math.hypot(ball.vx, ball.vy);
     if (speed > MAX_SPEED) { ball.vx *= MAX_SPEED / speed; ball.vy *= MAX_SPEED / speed; }
     ball.x += ball.vx * h;
@@ -145,12 +145,15 @@ function applyBallPhysics(ball, dt) {
           ball.vy -= (1 + RESTITUTION) * vn * ny;
           if (ny < -0.6) {
             const dir = Math.abs(dx) > 1e-3 ? Math.sign(dx) : (rand() < 0.5 ? -1 : 1);
-            ball.vx += dir * 12;
+            ball.vx += dir * 6;
           }
-          ball.vx += (rand() * 2 - 1) * 6;
+          ball.vx += (rand() * 2 - 1) * 3;
           ball.bounces = (ball.bounces || 0) + 1;
         }
       }
+    }
+    if (ball.x < BALL_RADIUS * 2 || ball.x > boardWidth - BALL_RADIUS * 2) {
+      ball.vx *= 0.98;
     }
   }
   if (ball.y >= bottomY) {
@@ -162,12 +165,17 @@ function applyBallPhysics(ball, dt) {
 
 function dropBall(bucket, multiplier, payout) {
   const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-  const offset = (bucketIndex - 5) * 0.15;
-  const startX = boardWidth / 2 + offset * colGap * 3 + (rand() * 2 - 1) * colGap * 0.3;
+  const firstRowCenter = boardWidth / 2;
+  const normalized = bucketIndex / (SLOT_COUNT - 1) * 2 - 1;
+  const spawnRadius = colGap * 1.25;
+  const spawnX = firstRowCenter + normalized * spawnRadius
+    + (rand() * 2 - 1) * colGap * 0.18;
+  const targetX = boardWidth / SLOT_COUNT * (bucketIndex + 0.5);
+  const startVx = (targetX - spawnX) * 0.35 + (rand() * 2 - 1) * 8;
   return {
-    x: startX,
+    x: spawnX,
     y: TOP_Y - 16,
-    vx: (rand() * 2 - 1) * 18,
+    vx: startVx,
     vy: 0,
     bounces: 0,
     lowestY: TOP_Y - 16,

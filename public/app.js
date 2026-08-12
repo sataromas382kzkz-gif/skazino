@@ -669,14 +669,18 @@ function initPlinko() {
 
   // Скорость свободного падения: спокойная, шарик долетает до низа за
   // несколько секунд и его траектория хорошо читается глазом.
-  const PLINKO_GRAVITY = 900;
-  const SUBSTEPS = 24;
-  const RESTITUTION = 0.35;
-  const STEER_STRENGTH = 8;
-  const STEER_BELOW_PEGS = 30;
-  const STEER_RESCUE = 200;
-  const MAX_SPEED = 1200;
-  const STILL_LIMIT = 0.3;
+  // Плавная физика: гравитация умеренная, упругость небольшая,
+  // чтобы шарик не «прыгал» по точкам, а мягко соскальзывал.
+  const PLINKO_GRAVITY = 850;
+  const SUBSTEPS = 32;
+  const RESTITUTION = 0.28;
+  // Направляющее усилие минимальное — траектория задаётся начальным
+  // положением и импульсом, а не агрессивным «рулением».
+  const STEER_STRENGTH = 3;
+  const STEER_BELOW_PEGS = 12;
+  const STEER_RESCUE = 120;
+  const MAX_SPEED = 1000;
+  const STILL_LIMIT = 0.35;
 
   // "Жёсткая" зона точки: шарик не может подойти к её центру ближе, чем на
   // сумму радиусов, и всегда останавливается на её поверхности.
@@ -727,8 +731,8 @@ function initPlinko() {
 
     // Касание дна: плавное доведение до центра своего слота.
     if (ball.settling) {
-      ball.x += (targetX - ball.x) * Math.min(1, 10 * dt);
-      ball.vx *= 0.7;
+      ball.x += (targetX - ball.x) * Math.min(1, 8 * dt);
+      ball.vx *= 0.6;
       ball.vy = 0;
       if (Math.abs(ball.x - targetX) < 1.2) {
         ball.x = targetX;
@@ -742,11 +746,14 @@ function initPlinko() {
     const h = dt / SUBSTEPS;
     for (let s = 0; s < SUBSTEPS; s += 1) {
       ball.vy += PLINKO_GRAVITY * h;
+      // Мягкое направление к цели — без рывков, только лёгкая коррекция.
       const steer = ball.wedged ? STEER_RESCUE
         : ball.y > lastRowY ? STEER_BELOW_PEGS : STEER_STRENGTH;
       ball.vx += (targetX - ball.x) * steer * h;
-      ball.vx *= (1 - 0.8 * h);
-      if (ball.wedged) ball.vy += 500 * h;
+      // Воздушное сопротивление почти отсутствует — шарик не тормозится
+      // искусственно, а летит по естественной траектории.
+      ball.vx *= (1 - 0.3 * h);
+      if (ball.wedged) ball.vy += 400 * h;
       const speed = Math.hypot(ball.vx, ball.vy);
       if (speed > MAX_SPEED) { ball.vx *= MAX_SPEED / speed; ball.vy *= MAX_SPEED / speed; }
       ball.x += ball.vx * h;
@@ -764,16 +771,24 @@ function initPlinko() {
           ball.y = peg.y + ny * R;
           const vn = ball.vx * nx + ball.vy * ny;
           if (vn < 0) {
+            // Упругий отскок с небольшой потерей энергии — шарик не
+            // «отпрыгивает» резко, а мягко меняет направление.
             ball.vx -= (1 + RESTITUTION) * vn * nx;
             ball.vy -= (1 + RESTITUTION) * vn * ny;
+            // Лёгкий боковой толчок при ударе сверху — без резких скачков.
             if (ny < -0.6) {
               const dir = Math.abs(dx) > 1e-3 ? Math.sign(dx) : (Math.random() < 0.5 ? -1 : 1);
-              ball.vx += dir * 12;
+              ball.vx += dir * 6;
             }
-            ball.vx += (Math.random() * 2 - 1) * 6;
+            // Минимальный шум — чтобы траектории не были идеально одинаковыми.
+            ball.vx += (Math.random() * 2 - 1) * 3;
             ball.bounces = (ball.bounces || 0) + 1;
           }
         }
+      }
+      // Небольшое замедление у стенок, чтобы шарик не застревал.
+      if (ball.x < BALL_RADIUS * 2 || ball.x > boardWidth - BALL_RADIUS * 2) {
+        ball.vx *= 0.98;
       }
     }
     if (ball.y >= bottomY) {
@@ -789,15 +804,26 @@ function initPlinko() {
 
   function dropBall(bucket, multiplier, payout) {
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    // Зона первых трёх точек: смещение от центра в зависимости от bucket.
-    // Левым слотам (0–4) — левее, правым (6–10) — правее, центр (5) — центр.
-    const offset = (bucketIndex - 5) * 0.15;
-    const startX = boardWidth / 2 + offset * colGap * 3 + (Math.random() * 2 - 1) * colGap * 0.3;
-
+    // Первый ряд состоит из 3 точек: левая, центр, правая. Зона спавна —
+    // промежуток от левой до правой точки первого ряда. Шарик появляется в
+    // этой зоне, а его точное положение зависит от целевого коэффициента:
+    // крайние слоты (0.2x) спавнятся у краёв, центральные — в середине.
+    const firstRowCenter = boardWidth / 2;
+    // Нормированная позиция слота: -1 (слот 0) ... +1 (слот 10).
+    const normalized = bucketIndex / (SLOT_COUNT - 1) * 2 - 1;
+    // Радиус зоны первых трёх точек: чуть шире расстояния между крайними
+    // точками первого ряда, чтобы шарик появлялся у их внешних краёв.
+    const spawnRadius = colGap * 1.25;
+    const spawnX = firstRowCenter + normalized * spawnRadius
+      + (Math.random() * 2 - 1) * colGap * 0.18;
+    // Начальный импульс сразу направлен к целевому слоту: шарик с самого
+    // старта «знает», куда ему падать, и катится естественно, без рывков.
+    const targetX = boardWidth / SLOT_COUNT * (bucketIndex + 0.5);
+    const startVx = (targetX - spawnX) * 0.35 + (Math.random() * 2 - 1) * 8;
     const ball = {
-      x: startX,
+      x: spawnX,
       y: TOP_Y - 16,
-      vx: (Math.random() * 2 - 1) * 18,
+      vx: startVx,
       vy: 0,
       bounces: 0,
       lowestY: TOP_Y - 16,
