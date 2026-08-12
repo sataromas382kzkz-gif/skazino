@@ -8,8 +8,8 @@ const FALL_SPEED = 120;
 const MIN_DOWNWARD_SPEED = 60;
 const RESTITUTION = 0.32;
 const TANGENT_KEEP = 0.72;
-const SUBSTEPS = 16;
-const COLLISION_PASSES = 2;
+const SUBSTEPS = 4;
+const CONTACT_CLEARANCE = 1.25;
 const MAX_STEPS = 2400;
 
 function makeRng(seed) {
@@ -129,7 +129,7 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
 
     if (ball.lastPeg) {
       const distanceFromLastPeg = Math.hypot(ball.x - ball.lastPeg.x, ball.y - ball.lastPeg.y);
-      if (distanceFromLastPeg >= contactRadius * 1.08) ball.lastPeg = null;
+      if (distanceFromLastPeg >= contactRadius * CONTACT_CLEARANCE) ball.lastPeg = null;
     }
 
     ball.x += ball.vx * h;
@@ -145,12 +145,17 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
 
     // Несколько проходов нужны, когда шарик касается двух соседних штырьков
     // одновременно: так коррекция контакта не возвращает его в предыдущий.
-    for (let pass = 0; pass < COLLISION_PASSES; pass += 1) {
-      for (const peg of pegs) {
-        if (peg === ball.lastPeg) continue;
-        resolvePeg(ball, peg, contactRadius);
+    let nearestPeg = null;
+    let nearestDistance = contactRadius;
+    for (const peg of pegs) {
+      if (peg === ball.lastPeg) continue;
+      const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestPeg = peg;
       }
     }
+    if (nearestPeg) resolvePeg(ball, nearestPeg, contactRadius);
     keepFallSpeed(ball);
   }
 

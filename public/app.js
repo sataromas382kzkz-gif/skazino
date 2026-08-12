@@ -513,6 +513,7 @@ function initPlinko() {
   let dropping = false;
   let requestsDone = false;
   let balls = [];
+  let previewBall = null;
   let animationId = null;
   let lastTime = 0;
   let physicsAccumulator = 0;
@@ -613,7 +614,7 @@ function initPlinko() {
 
   function renderFrame() {
     drawBoard();
-    for (const ball of balls) {
+    const renderBall = ball => {
       ctx.save();
       const radius = ball.radius || BALL_RADIUS;
       const impact = ball.impact || 0;
@@ -630,7 +631,9 @@ function initPlinko() {
       ctx.arc(ball.x, ball.y, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
-    }
+    };
+    for (const ball of balls) renderBall(ball);
+    if (previewBall && !balls.length) renderBall(previewBall);
   }
 
   // =================================================================
@@ -650,6 +653,7 @@ function initPlinko() {
   }
 
   function physicsDropBall(result, physicsWidth, physicsHeight) {
+    previewBall = null;
     const ball = createPlinkoBall(physicsWidth, physicsHeight, result.physicsSeed);
     ball.physicsWidth = physicsWidth;
     ball.physicsHeight = physicsHeight;
@@ -691,6 +695,7 @@ function initPlinko() {
     }
     dropping = false;
     balls.length = 0;
+    previewBall = createPreviewBall();
     renderFrame();
     dropButton.disabled = false;
     updateDropButton();
@@ -700,6 +705,17 @@ function initPlinko() {
     const bet = Math.max(10, Number(betInput.value) || 10);
     const ballsLabel = currentBalls === 1 ? 'шарик' : 'шариков';
     dropButton.textContent = `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
+  }
+
+  function createPreviewBall() {
+    return {
+      x: boardWidth / 2,
+      y: TOP_Y - 16,
+      radius: BALL_RADIUS,
+      impact: 0,
+      settled: false,
+      preview: true
+    };
   }
 
   const ballsButtons = [...document.querySelectorAll('.plinko-balls-btn')];
@@ -771,6 +787,7 @@ function initPlinko() {
       if (animationId) cancelAnimationFrame(animationId);
       animationId = null;
       balls = [];
+      previewBall = createPreviewBall();
       renderFrame();
       toast(error.message);
       dropButton.disabled = false;
@@ -785,10 +802,11 @@ function initPlinko() {
   window.addEventListener('resize', () => {
     // Во время броска размеры поля являются частью общего физического
     // сценария сервера и клиента. Не меняем их посреди симуляции.
-    if (!dropping) { resizeCanvas(); drawBoard(); }
+    if (!dropping) { resizeCanvas(); renderFrame(); }
   });
   resizeCanvas();
-  drawBoard();
+  previewBall = createPreviewBall();
+  renderFrame();
   updateDropButton();
 
 }
