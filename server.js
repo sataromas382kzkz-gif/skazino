@@ -641,9 +641,32 @@ app.get('/api/cases', (req, res) => {
 // от погрешности IEEE-754: 12 * 10 / 10 всегда даёт 12, а не 11.999...
 const PLINKO_PAYOUT_TENTHS = PLINKO_COEFFICIENT_TENTHS;
 const PLINKO_PAYOUTS = PLINKO_PAYOUT_TENTHS.map(value => value / 10);
+// Вероятность задаёт только выбор стартового физического сценария. Сам
+// коэффициент всегда берётся из слота, в котором симуляция реально завершилась.
+const PLINKO_PROBABILITIES = [0.105, 0.10, 0.10, 0.11, 0.075, 0.02, 0.075, 0.11, 0.10, 0.10, 0.105];
 // Очередь нужна локальному файловому хранилищу: параллельные броски не должны
 // перезаписывать баланс результатом, рассчитанным по устаревшему профилю.
 let plinkoLocalQueue = Promise.resolve();
+
+function drawPlinkoTarget() {
+  const roll = crypto.randomInt(0, 1000) / 1000;
+  let cumulative = 0;
+  for (let index = 0; index < PLINKO_PROBABILITIES.length; index += 1) {
+    cumulative += PLINKO_PROBABILITIES[index];
+    if (roll < cumulative) return index;
+  }
+  return PLINKO_PROBABILITIES.length - 1;
+}
+
+function createWeightedPhysicalDrop(boardWidth, boardHeight) {
+  const target = drawPlinkoTarget();
+  for (let attempt = 0; attempt < 2000; attempt += 1) {
+    const physicsSeed = crypto.randomInt(0, 0x100000000);
+    const simulation = simulatePlinkoDrop(boardWidth, boardHeight, physicsSeed);
+    if (simulation.bucket === target) return { physicsSeed, bucket: simulation.bucket };
+  }
+  throw new Error('Не удалось подобрать физический старт Плинко');
+}
 
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
 // через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
@@ -666,8 +689,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   // один seed и одну модель, поэтому bucket — это фактическая конечная ячейка,
   // а не заранее выбранный коэффициент для последующей анимации.
   const results = Array.from({ length: count }, () => {
-    const physicsSeed = crypto.randomInt(0, 0x100000000);
-    const { bucket } = simulatePlinkoDrop(boardWidth, boardHeight, physicsSeed);
+    const { physicsSeed, bucket } = createWeightedPhysicalDrop(boardWidth, boardHeight);
     const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket);
     return { bucket, multiplier, coefficientTenths, payout, physicsSeed };
   });

@@ -4,13 +4,12 @@ const PADDING_X = 30;
 const TOP_Y = 22;
 const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
-const GRAVITY = 850;
-const RESTITUTION = 0.36;
-const TANGENT_KEEP = 0.98;
+const FALL_SPEED = 360;
+const MIN_DOWNWARD_SPEED = 220;
+const RESTITUTION = 0.32;
+const TANGENT_KEEP = 0.72;
 const SUBSTEPS = 16;
 const COLLISION_PASSES = 3;
-const AIR_DRAG = 0.18;
-const MAX_SPEED = 1050;
 const MAX_STEPS = 2400;
 
 function makeRng(seed) {
@@ -70,7 +69,7 @@ export function createPlinkoBall(width, height, seed) {
   return {
     x: spawnX,
     y: TOP_Y - 16,
-    vx: spawnOffset * 12 + (rng() - 0.5) * 110,
+    vx: spawnOffset * 12 + (rng() - 0.5) * 600,
     vy: 0,
     spawnX,
     spawnY: TOP_Y - 16,
@@ -107,6 +106,14 @@ function resolvePeg(ball, peg, contactRadius) {
   ball.impact = Math.min(1, Math.abs(normalVelocity) / 360);
 }
 
+function keepFallSpeed(ball) {
+  let vx = Number(ball.vx) || 0;
+  let vy = Math.max(MIN_DOWNWARD_SPEED, Number(ball.vy) || 0);
+  const speed = Math.hypot(vx, vy) || FALL_SPEED;
+  ball.vx = vx * FALL_SPEED / speed;
+  ball.vy = vy * FALL_SPEED / speed;
+}
+
 export function stepPlinkoBall(ball, width, height, dt) {
   if (ball.settled) return;
   const metrics = plinkoMetrics(width, height);
@@ -117,14 +124,7 @@ export function stepPlinkoBall(ball, width, height, dt) {
   ball.impact = Math.max(0, (ball.impact || 0) - Math.max(0, Number(dt) || 0) * 5);
 
   for (let substep = 0; substep < SUBSTEPS; substep += 1) {
-    ball.vy += GRAVITY * h;
-    ball.vx *= Math.exp(-AIR_DRAG * h);
-
-    const speed = Math.hypot(ball.vx, ball.vy);
-    if (speed > MAX_SPEED) {
-      ball.vx *= MAX_SPEED / speed;
-      ball.vy *= MAX_SPEED / speed;
-    }
+    keepFallSpeed(ball);
 
     ball.x += ball.vx * h;
     ball.y += ball.vy * h;
@@ -142,6 +142,7 @@ export function stepPlinkoBall(ball, width, height, dt) {
     for (let pass = 0; pass < COLLISION_PASSES; pass += 1) {
       for (const peg of pegs) resolvePeg(ball, peg, contactRadius);
     }
+    keepFallSpeed(ball);
   }
 
   if (ball.y >= bottomY) {
