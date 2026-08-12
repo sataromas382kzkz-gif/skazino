@@ -667,17 +667,57 @@ function initPlinko() {
     }
   }
 
-  // ===== ФИЗИКА ПЛИНКО =====
-  // Чистая гравитация + столкновения с колышками. Никакой телепортации,
-  // неестественных отскоков или принудительного «руления».
-  // Шарик постоянно падает вниз, мягко отклоняясь при касании точек.
-  const PLINKO_GRAVITY = 62;        // px/с² — подобрано под ~3.5 сек полёта
-  const RESTITUTION = 0.28;         // упругость: низкая, без сильных отскоков
-  const SUBSTEPS = 8;               // подшагов для точных коллизий
-  const SPAWN_DELAY_JITTER = 0.12;  // разброс старта между шариками (сек)
+  // ===== ФИЗИКА ПЛИНКО: траекторный подход =====
+  // Каждый шарик получает целевой коэффициент ДО падения.
+  // Траектория строится через ближайшие к идеальной линии точки,
+  // поэтому шарик естественно приходит в нужный слот без телепорта.
+  const PLINKO_GRAVITY = 78;        // px/с² — даёт ~3.5 сек полёта
+  const PEG_DAMPING = 0.82;         // сохранение скорости после «касания»
+  const SPAWN_DELAY_JITTER = 0.12;
 
-  function easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
+  // Строит цепочку опорных точек от спавна до центра целевого слота.
+  // Каждая промежуточная точка — позиция реального колышка на доске.
+  function buildPlinkoPath(bucketIndex) {
+    const targetX = (boardWidth / SLOT_COUNT) * (bucketIndex + 0.5);
+    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    const waypoints = [];
+
+    // Спавн в зоне трёх первых колышков.
+    const firstRowWidth = colGap * 2;
+    const firstRowStartX = boardWidth / 2 - firstRowWidth / 2;
+    const spawnX = firstRowStartX + Math.random() * firstRowWidth;
+    waypoints.push({ x: spawnX, y: TOP_Y - 16 });
+
+    let prevX = spawnX;
+    for (let row = 0; row < ROWS; row += 1) {
+      const pegCount = row + 3;
+      const rowWidth = (pegCount - 1) * colGap;
+      const rowStartX = boardWidth / 2 - rowWidth / 2;
+      const rowY = TOP_Y + row * rowGap;
+      const progress = (row + 1) / (ROWS + 1);
+      const idealX = prevX + (targetX - prevX) * progress;
+      let bestX = rowStartX;
+      let bestDist = Infinity;
+      for (let p = 0; p < pegCount; p += 1) {
+        const px = rowStartX + p * colGap;
+        const d = Math.abs(px - idealX);
+        if (d < bestDist) { bestDist = d; bestX = px; }
+      }
+      waypoints.push({ x: bestX, y: rowY });
+      prevX = bestX;
+    }
+
+    // Финиш — ровно центр целевого слота.
+    waypoints.push({ x: targetX, y: bottomY });
+
+    // Превращаем точки в отрезки с предподсчитанными смещениями.
+    const segments = [];
+    for (let i = 0; i < waypoints.length - 1; i += 1) {
+      const x1 = waypoints[i].x, y1 = waypoints[i].y;
+      const x2 = waypoints[i + 1].x, y2 = waypoints[i + 1].y;
+      segments.push({ x1, y1, x2, y2, dx: x2 - x1, dy: y2 - y1 });
+    }
+    return { waypoints, segments };
   }
 
   function settleBall(ball) {
@@ -693,123 +733,65 @@ function initPlinko() {
     ball.settled = true;
   }
 
-  // Ядро анимации: свободное падение + коллизии с каждой точкой на доске.
+  // Движение шарика вдоль предрассчитанной траектории.
+  // Между точками — свободное падение с гравитацией.
+  // В точке — мягкая смена направления, без отскока.
   function updateBall(ball, dt) {
     if (ball.settled) return;
 
-    // Финальное плавное затухание в центр слота.
-    if (ball.settling) {
-      ball.settleT += dt * 3.5;
-      if (ball.settleT >= 1) { ball.settleT = 1; settleBall(ball); return; }
-      ball.x = ball.settleFromX + (ball.settleToX - ball.settleFromX) * easeOutCubic(ball.settleT);
-      ball.y = ball.settleFromY;
+    if (ball.spawnDelay > 0) {
+      ball.spawnDelay -= dt;
       return;
     }
 
-    if (ball.spawnDelay > 0) { ball.spawnDelay -= dt; return; }
-
-    const targetX = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
-    const pegs = pegPositions();
-    const contactR = pegRadius + BALL_RADIUS;
-    const h = dt / SUBSTEPS;
-
-    for (let s = 0; s < SUBSTEPS; s += 1) {
-      // Свободное падение: только гравитация.
-      ball.vy += PLINKO_GRAVITY * h;
-
-      // Лёгкое сопротивление воздуха — без него шарик неестественно разгоняется.
-      ball.vx *= (1 - 0.28 * h);
-      ball.vy *= (1 - 0.08 * h);
-
-      // Перемещение.
-      ball.x += ball.vx * h;
-      ball.y += ball.vy * h;
-
-      // Мягкий отскок от стен.
-      if (ball.x < BALL_RADIUS) {
-        ball.x = BALL_RADIUS;
-        ball.vx = Math.abs(ball.vx) * 0.3;
-      }
-      if (ball.x > boardWidth - BALL_RADIUS) {
-        ball.x = boardWidth - BALL_RADIUS;
-        ball.vx = -Math.abs(ball.vx) * 0.3;
-      }
-
-      // Проверка касания каждого колышка.
-      for (const peg of pegs) {
-        const dx = ball.x - peg.x;
-        const dy = ball.y - peg.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist >= contactR || dist <= 1e-6) continue;
-
-        const nx = dx / dist;
-        const ny = dy / dist;
-
-        // Выталкиваем шарик из колышка.
-        ball.x = peg.x + nx * contactR;
-        ball.y = peg.y + ny * contactR;
-
-        const vn = ball.vx * nx + ball.vy * ny;
-        if (vn >= 0) continue; // шарик уже удаляется — пропускаем
-
-        // Упругое отражение с потерей энергии.
-        ball.vx -= (1 + RESTITUTION) * vn * nx;
-        ball.vy -= (1 + RESTITUTION) * vn * ny;
-
-        // Вертикальная скорость ВСЕГДА должна оставаться направленной вниз.
-        // Никаких подлётов вверх после столкновения.
-        if (ball.vy > 0) ball.vy *= 0.15;
-
-        // Минимальный случайный боковой импульс — естественная
-        // непредсказуемость реального плинко.
-        ball.vx += (Math.random() - 0.5) * 5;
-
-        // Незаметный доводящий импульс к целевому слоту.
-        // Настолько слабый, что визуально не читается.
-        ball.vx += (targetX - ball.x) * 0.012;
-      }
+    const seg = ball.segments[ball.segIndex];
+    if (!seg) {
+      // Траектория пройдена — шарик УЖЕ в целевом слоте.
+      settleBall(ball);
+      return;
     }
 
-    // Достиг дна — плавно заезжает в свой слот.
-    if (ball.y >= boardHeight - BOTTOM_MARGIN + 4) {
-      ball.settling = true;
-      ball.settleT = 0;
-      ball.settleFromX = ball.x;
-      ball.settleFromY = ball.y;
-      ball.settleToX = targetX;
-      ball.settleToY = boardHeight - BOTTOM_MARGIN + 6;
+    // Гравитация тянет вниз.
+    ball.vy += PLINKO_GRAVITY * dt;
+    ball.y += ball.vy * dt;
+
+    // Прогресс по вертикали внутри текущего отрезка.
+    const tRaw = (ball.y - seg.y1) / (seg.dy || 1);
+    const t = Math.max(0, Math.min(1, tRaw));
+
+    // Горизонталь: линейная интерполяция вдоль отрезка.
+    ball.x = seg.x1 + seg.dx * t;
+
+    if (tRaw >= 1) {
+      // Достигли опорной точки (колышка или финиша).
+      ball.y = seg.y2;
+      ball.x = seg.x2;
+      ball.segIndex += 1;
+
+      // Мягкое гашение скорости: шарик «чиркнул» о колышек.
+      if (ball.segIndex < ball.segments.length) {
+        ball.vy *= PEG_DAMPING;
+      } else {
+        // Последний отрезок завершён — финиш.
+        settleBall(ball);
+      }
     }
   }
 
   function dropBall(bucket, multiplier, payout) {
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    const targetX = (boardWidth / SLOT_COUNT) * (bucketIndex + 0.5);
-
-    // Спавн в зоне первых трёх точек. Позиция слегка смещена к целевому
-    // слоту, но保留了随机性 — 50% случай, 50% направление.
-    const firstRowWidth = colGap * 2;
-    const firstRowStartX = boardWidth / 2 - firstRowWidth / 2;
-    const normalized = bucketIndex / (SLOT_COUNT - 1);          // 0 … 1
-    const randomX = firstRowStartX + Math.random() * firstRowWidth;
-    const biasedX = firstRowStartX + normalized * firstRowWidth;
-    const spawnX = randomX * 0.5 + biasedX * 0.5;
-
-    // Начальный горизонтальный импульс: лёгкое движение в сторону цели.
-    const startVx = (targetX - spawnX) * 0.22 + (Math.random() - 0.5) * 6;
+    const { waypoints, segments } = buildPlinkoPath(bucketIndex);
 
     const ball = {
-      x: spawnX,
-      y: TOP_Y - 16,
-      vx: startVx,
+      x: waypoints[0].x,
+      y: waypoints[0].y,
+      vx: 0,
       vy: 0,
+      waypoints,
+      segments,
+      segIndex: 0,
       spawnDelay: Math.random() * SPAWN_DELAY_JITTER,
-      settling: false,
       settled: false,
-      settleT: 0,
-      settleFromX: 0,
-      settleFromY: 0,
-      settleToX: 0,
-      settleToY: 0,
       bucket: bucketIndex,
       multiplier,
       payout: Number(payout)
