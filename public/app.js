@@ -507,12 +507,14 @@ function initPlinko() {
   const TANGENT_KEEP = 0.94;      // почти полное скольжение по касательной
   const SUBSTEPS = 16;            // мелкие шаги не дают шарику проскакивать колышки
 
-  // Лёгкая коррекция сохраняет серверный результат, не превращая падение в прямое ведение.
-  const STEER = 2.8;
-  const STEER_END = 4.5;
-  const STEER_BELOW_PEGS = 12;
-  const STEER_RESCUE = 120;
-  const STILL_LIMIT = 0.35;
+  // Слабое горизонтальное влияние задаёт только общий маршрут. Все изменения
+  // скорости и положения всё равно проходят через обычную физику столкновений.
+  const ROUTE_STRENGTH = 4.4;
+  const ROUTE_MAX_ACCELERATION = 520;
+  const AIR_DRAG = 0.18;
+  const MAX_SPEED = 1050;
+  const TRAY_FRICTION = 6.5;
+  const TRAY_STRENGTH = 18;
 
   const SPAWN_DELAY_JITTER = 0.10;
 
@@ -660,7 +662,7 @@ function initPlinko() {
   // =================================================================
 
   // Столкновение с одним колышком.
-  // Шарик не отскакивает — он скользит по касательной, меняя направление.
+  // Шарик получает упругий импульс по нормали и сохраняет скорость по касательной.
   function resolvePeg(ball, peg, contactR) {
     const dx = ball.x - peg.x;
     const dy = ball.y - peg.y;
@@ -676,11 +678,10 @@ function initPlinko() {
     const vn = ball.vx * nx + ball.vy * ny;
     if (vn >= 0) return true; // уже удаляется
 
-    // Тангенциальная скорость — сохраняется почти целиком.
+    // Нормальная скорость меняется по коэффициенту восстановления, касательная
+    // почти сохраняется: так шарик естественно скользит по поверхности колышка.
     const tx = -ny, ty = nx;
     const vt = ball.vx * tx + ball.vy * ty;
-
-    // Нормальная — почти полностью гасится.
     ball.vx = tx * vt * TANGENT_KEEP - nx * Math.abs(vn) * RESTITUTION;
     ball.vy = ty * vt * TANGENT_KEEP - ny * Math.abs(vn) * RESTITUTION;
     ball.impact = Math.min(1, Math.abs(vn) / 360);
@@ -688,10 +689,8 @@ function initPlinko() {
   }
 
   function settleBall(ball) {
-    const slotWidth = boardWidth / SLOT_COUNT;
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
     ball.actualBucket = ball.bucket;
-    ball.x = slotWidth * (ball.bucket + 0.5);
     ball.y = bottomY;
     ball.multiplier = Number(ball.multiplier);
     ball.payout = Number(ball.payout);
@@ -708,44 +707,52 @@ function initPlinko() {
     const targetX = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
     const pegs = pegPositions();
-    const lastRowY = TOP_Y + (ROWS - 1) * rowGap;
     const h = dt / SUBSTEPS;
     ball.impact = Math.max(0, (ball.impact || 0) - dt * 5);
 
-    if (ball.settling) {
-      ball.x += (targetX - ball.x) * Math.min(1, 8 * dt);
-      ball.vx *= 0.6;
-      if (Math.abs(ball.x - targetX) < 1.2) {
-        ball.x = targetX;
+    // В нижнем лотке шарик продолжает двигаться по полу до своего слота.
+    // Это плавное скольжение заменяет прежний финальный "прыжок" к центру.
+    if (ball.inTray) {
+      const distance = targetX - ball.x;
+      const trayAcceleration = Math.max(-260, Math.min(260, distance * TRAY_STRENGTH));
+      ball.vx += trayAcceleration * dt;
+      ball.vx *= Math.exp(-TRAY_FRICTION * dt);
+      ball.x += ball.vx * dt;
+      const slotWidth = boardWidth / SLOT_COUNT;
+      const captureDistance = Math.max(2, slotWidth * 0.30);
+      if (Math.abs(distance) <= captureDistance && Math.abs(ball.vx) < 24) {
         settleBall(ball);
       }
       return;
     }
 
-    if (ball.y > (ball.lowestY ?? ball.y) + 0.5) {
-      ball.lowestY = ball.y;
-      ball.stillTime = 0;
-      ball.wedged = false;
-    } else {
-      ball.stillTime = (ball.stillTime || 0) + dt;
-    }
-    if (ball.stillTime > STILL_LIMIT) ball.wedged = true;
-    if (ball.wedged && ball.y > lastRowY) ball.wedged = false;
-
-    const contactR = ball.wedged ? BALL_RADIUS * 0.4 : pegRadius + BALL_RADIUS;
+    const contactR = pegRadius + BALL_RADIUS;
 
     for (let s = 0; s < SUBSTEPS; s += 1) {
       ball.vy += gravity * h;
 
-      // Мягкий долгосрочный довод к целевому слоту.
-      const progress = Math.min(1, ball.elapsed / 2.8);
-      const steer = ball.wedged ? STEER_RESCUE
-        : ball.y > lastRowY ? STEER_BELOW_PEGS
-          : STEER + (STEER_END - STEER) * progress;
-      ball.vx += (targetX - ball.x) * steer * h;
+      // Маршрут меняется постепенно по мере падения, поэтому шарик не получает
+      // резкого импульса к финальному коэффициенту.
+      const fallDistance = Math.max(1, bottomY - ball.spawnY);
+      const progress = Math.max(0, Math.min(1, (ball.y - ball.spawnY) / fallDistance));
+      const easedProgress = progress * progress * (3 - 2 * progress);
+      const routeTarget = ball.spawnX
+        + (targetX - ball.spawnX) * easedProgress
+        + ball.routeWobble * Math.sin(progress * Math.PI * 3) * (1 - progress);
+      const routeAcceleration = Math.max(
+        -ROUTE_MAX_ACCELERATION,
+        Math.min(ROUTE_MAX_ACCELERATION, (routeTarget - ball.x) * ROUTE_STRENGTH)
+      );
+      ball.vx += routeAcceleration * h;
 
       // Сопротивление воздуха.
-      ball.vx *= (1 - 0.3 * h);
+      ball.vx *= Math.exp(-AIR_DRAG * h);
+
+      const speed = Math.hypot(ball.vx, ball.vy);
+      if (speed > MAX_SPEED) {
+        ball.vx *= MAX_SPEED / speed;
+        ball.vy *= MAX_SPEED / speed;
+      }
 
       // Перемещение.
       ball.x += ball.vx * h;
@@ -762,37 +769,35 @@ function initPlinko() {
     if (ball.y >= bottomY) {
       ball.y = bottomY;
       ball.vy = 0;
-      ball.settling = true;
+      ball.inTray = true;
     }
   }
 
   function dropBall(bucket, multiplier, payout) {
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    const targetX = (boardWidth / SLOT_COUNT) * (bucketIndex + 0.5);
-
-    // Спавн: случайная позиция с лёгким смещением к цели.
-    const firstRowW = colGap * 2;
-    const startX = boardWidth / 2 - firstRowW / 2;
-    const norm = bucketIndex / (SLOT_COUNT - 1);
-    const randX = startX + Math.random() * firstRowW;
-    const biasX = startX + norm * firstRowW;
-    const spawnX = randX * 0.45 + biasX * 0.55;
-
-    const startVx = (targetX - spawnX) * 0.22 + (Math.random() - 0.5) * 6;
+    // Спавн всегда находится только в диапазоне трёх верхних колышков.
+    // Bucket не влияет на стартовую позицию: результат определяется серверной
+    // вероятностью, а шарик проходит к нему непрерывную траекторию.
+    const firstPegLeft = boardWidth / 2 - colGap;
+    const firstPegRight = boardWidth / 2 + colGap;
+    const spawnX = firstPegLeft + BALL_RADIUS
+      + Math.random() * Math.max(1, firstPegRight - firstPegLeft - BALL_RADIUS * 2);
+    const spawnOffset = (spawnX - boardWidth / 2) / Math.max(1, colGap);
+    const startVx = spawnOffset * 12 + (Math.random() - 0.5) * 34;
 
     const ball = {
       x: spawnX, y: TOP_Y - 16,
       vx: startVx, vy: 0,
+      spawnX,
+      spawnY: TOP_Y - 16,
+      routeWobble: (Math.random() - 0.5) * colGap * 0.12,
       elapsed: 0,
       spawnDelay: Math.random() * SPAWN_DELAY_JITTER,
       settled: false,
       bucket: bucketIndex,
       multiplier,
       payout: Number(payout),
-      lowestY: TOP_Y - 16,
-      stillTime: 0,
-      wedged: false,
-      settling: false,
+      inTray: false,
       impact: 0
     };
     balls.push(ball);
