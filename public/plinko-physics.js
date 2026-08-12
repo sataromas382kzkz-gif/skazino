@@ -6,8 +6,8 @@ const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
 const FALL_SPEED = 120;
 const MAX_HORIZONTAL_SPEED = FALL_SPEED;
-const INITIAL_HORIZONTAL_IMPULSE = 160;
 const FALL_TURN_RATE = 30;
+const HORIZONTAL_DRIFT_ACCELERATION = 120;
 const SUBSTEPS = 4;
 const CONTACT_CLEARANCE = 1.25;
 const MAX_STEPS = 2400;
@@ -60,21 +60,20 @@ export function plinkoSlotFromX(x, width) {
 export function createPlinkoBall(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
   const rng = makeRng(seed);
-  const firstPegLeft = metrics.boardWidth / 2 - metrics.colGap;
-  const firstPegRight = metrics.boardWidth / 2 + metrics.colGap;
-  const spawnX = firstPegLeft + metrics.ballRadius
-    + rng() * Math.max(1, firstPegRight - firstPegLeft - metrics.ballRadius * 2);
-  const spawnOffset = (spawnX - metrics.boardWidth / 2) / Math.max(1, metrics.colGap);
-  const initialVx = spawnOffset * 12 + (rng() - 0.5) * INITIAL_HORIZONTAL_IMPULSE * 2;
-  const horizontalSpeed = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, initialVx));
+  const firstRowLeftPeg = metrics.boardWidth / 2 - metrics.colGap;
+  const firstRowRightPeg = metrics.boardWidth / 2 + metrics.colGap;
+  const spawnMinX = firstRowLeftPeg + metrics.ballRadius;
+  const spawnMaxX = firstRowRightPeg - metrics.ballRadius;
+  const spawnX = spawnMinX + rng() * Math.max(1, spawnMaxX - spawnMinX);
 
   return {
     x: spawnX,
     y: TOP_Y - 16,
-    vx: horizontalSpeed,
-    vy: Math.sqrt(FALL_SPEED * FALL_SPEED - horizontalSpeed * horizontalSpeed),
+    vx: 0,
+    vy: FALL_SPEED,
     spawnX,
     spawnY: TOP_Y - 16,
+    driftVx: (rng() - 0.5) * MAX_HORIZONTAL_SPEED * 2,
     radius: metrics.ballRadius,
     settled: false,
     actualBucket: null,
@@ -125,6 +124,11 @@ function isSamePeg(first, second) {
 
 function keepFallSpeed(ball, dt = 0, allowFallTurn = true) {
   let vx = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, Number(ball.vx) || 0));
+  if (ball.y >= TOP_Y && dt > 0 && Number.isFinite(ball.driftVx)) {
+    const drift = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, ball.driftVx));
+    const adjustment = Math.min(Math.abs(drift - vx), HORIZONTAL_DRIFT_ACCELERATION * dt);
+    vx += Math.sign(drift - vx) * adjustment;
+  }
   if (allowFallTurn && dt > 0) {
     const turn = Math.min(Math.abs(vx), FALL_TURN_RATE * dt);
     vx -= Math.sign(vx) * turn;
