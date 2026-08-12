@@ -6,8 +6,8 @@ const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
 const FALL_SPEED = 120;
 const MAX_HORIZONTAL_SPEED = FALL_SPEED;
-const INITIAL_HORIZONTAL_IMPULSE = 72;
-const FALL_TURN_RATE = 90;
+const INITIAL_HORIZONTAL_IMPULSE = 160;
+const FALL_TURN_RATE = 30;
 const SUBSTEPS = 4;
 const CONTACT_CLEARANCE = 1.25;
 const MAX_STEPS = 2400;
@@ -85,6 +85,19 @@ export function createPlinkoBall(width, height, seed) {
   };
 }
 
+function removeInwardPegVelocity(ball, peg) {
+  const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
+  if (distance < 1e-6) return;
+  const nx = (ball.x - peg.x) / distance;
+  const ny = (ball.y - peg.y) / distance;
+  const normalSpeed = ball.vx * nx + ball.vy * ny;
+  if (normalSpeed < 0) {
+    ball.vx -= nx * normalSpeed;
+    ball.vy -= ny * normalSpeed;
+  }
+  ball.vy = Math.max(0, ball.vy);
+}
+
 function resolvePeg(ball, peg, contactRadius) {
   const dx = ball.x - peg.x;
   const dy = ball.y - peg.y;
@@ -100,23 +113,9 @@ function resolvePeg(ball, peg, contactRadius) {
   // Полностью неупругое столкновение: удаляем только скорость, направленную
   // внутрь штырька. Нормальная скорость не отражается обратно, поэтому шарик
   // не отскакивает, а продолжает движение по касательной.
-  const normalSpeed = ball.vx * nx + ball.vy * ny;
-  let tangentVx = ball.vx - nx * Math.min(normalSpeed, 0);
-  let tangentVy = ball.vy - ny * Math.min(normalSpeed, 0);
-  let tangentLength = Math.hypot(tangentVx, tangentVy);
-
-  if (tangentLength < 1e-6 || tangentVy < 0) {
-    const tx = -ny;
-    const ty = nx;
-    const tangentSign = ty >= 0 ? 1 : -1;
-    tangentVx = tx * tangentSign;
-    tangentVy = ty * tangentSign;
-    tangentLength = 1;
-  }
-  ball.vx = tangentVx * FALL_SPEED / tangentLength;
-  ball.vy = tangentVy * FALL_SPEED / tangentLength;
+  removeInwardPegVelocity(ball, peg);
   ball.bounces += 1;
-  ball.impact = 1;
+  ball.impact = 0;
   ball.lastPeg = peg;
 }
 
@@ -169,6 +168,7 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
       if (distanceFromLastPeg >= contactRadius * CONTACT_CLEARANCE) ball.lastPeg = null;
     }
     keepFallSpeed(ball, h, !ball.lastPeg);
+    if (ball.lastPeg) removeInwardPegVelocity(ball, ball.lastPeg);
 
     let remaining = 1;
     for (let contact = 0; contact < 3 && remaining > 1e-6; contact += 1) {
@@ -192,6 +192,19 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
       remaining *= 1 - hit.time;
     }
 
+    if (ball.lastPeg) {
+      const dx = ball.x - ball.lastPeg.x;
+      const dy = ball.y - ball.lastPeg.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance < contactRadius) {
+        const nx = distance < 1e-6 ? 0 : dx / distance;
+        const ny = distance < 1e-6 ? -1 : dy / distance;
+        ball.x = ball.lastPeg.x + nx * contactRadius;
+        ball.y = ball.lastPeg.y + ny * contactRadius;
+      }
+      removeInwardPegVelocity(ball, ball.lastPeg);
+    }
+
     if (ball.x < ball.radius) {
       ball.x = ball.radius;
       ball.vx = Math.abs(ball.vx);
@@ -202,6 +215,7 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
 
     // Скорость сохраняется после любой корректировки положения и у границ поля.
     keepFallSpeed(ball);
+    if (ball.lastPeg) removeInwardPegVelocity(ball, ball.lastPeg);
   }
 
   if (ball.y >= bottomY) {

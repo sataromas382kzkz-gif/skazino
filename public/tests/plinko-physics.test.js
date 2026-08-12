@@ -20,7 +20,7 @@ function testDrop(width, height, seed) {
   assert.ok(Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED) < 1e-6, `некорректный стартовый импульс: seed=${seed}`);
   let steps = 0;
   let maxDisplacement = 0;
-  let maxSpeedError = 0;
+  let maxSpeed = 0;
 
   while (!ball.settled && steps < MAX_STEPS) {
     const beforeX = ball.x;
@@ -29,7 +29,7 @@ function testDrop(width, height, seed) {
     const displacement = Math.hypot(ball.x - beforeX, ball.y - beforeY);
     maxDisplacement = Math.max(maxDisplacement, displacement);
     if (!ball.settled) {
-      maxSpeedError = Math.max(maxSpeedError, Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED));
+      maxSpeed = Math.max(maxSpeed, Math.hypot(ball.vx, ball.vy));
       assert.ok(ball.vy >= -1e-6, `шарик отскочил вверх: seed=${seed}`);
       for (const peg of pegs) {
         const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
@@ -43,7 +43,7 @@ function testDrop(width, height, seed) {
   assert.equal(ball.actualBucket, serverDrop.bucket, `клиентский и серверный слоты расходятся: ${width}x${height}, seed=${seed}`);
   assert.ok(ball.actualBucket >= 0 && ball.actualBucket < 11, `некорректный слот: ${ball.actualBucket}`);
   assert.ok(maxDisplacement < 8, `резкий скачок: ${maxDisplacement.toFixed(2)} px`);
-  assert.ok(maxSpeedError < 1e-6, `скорость не постоянна: ошибка ${maxSpeedError}`);
+  assert.ok(maxSpeed <= FALL_SPEED + 1e-6, `скорость шарика превысила лимит: ${maxSpeed}`);
   assert.ok(ball.bounces <= 40, `слишком много повторных столкновений: ${ball.bounces}`);
 
   return { bucket: ball.actualBucket, steps, maxDisplacement, bounces: ball.bounces };

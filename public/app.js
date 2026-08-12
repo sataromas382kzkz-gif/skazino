@@ -1,4 +1,4 @@
-import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=physics-v9-20260812';
+import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=physics-v10-20260812';
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -757,11 +757,13 @@ function initPlinko() {
       }
       pendingTotalPayout = checkedTotalPayout;
       pendingProfile = data.profile;
-      lastTime = performance.now();
-      animationId = requestAnimationFrame(animate);
       for (const [index, result] of data.results.entries()) {
         if (index > 0) await new Promise(resolve => setTimeout(resolve, 450));
         physicsDropBall(result, physicsWidth, physicsHeight);
+        if (!animationId) {
+          lastTime = performance.now();
+          animationId = requestAnimationFrame(animate);
+        }
       }
       requestsDone = true;
     } catch (error) {
