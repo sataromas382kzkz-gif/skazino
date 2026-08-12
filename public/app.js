@@ -669,14 +669,14 @@ function initPlinko() {
 
   // Скорость свободного падения: спокойная, шарик долетает до низа за
   // несколько секунд и его траектория хорошо читается глазом.
-  const PLINKO_GRAVITY = 260;
-  const SUBSTEPS = 32;
-  const RESTITUTION = 0.3;
-  const STEER_STRENGTH = 70;
-  const STEER_BELOW_PEGS = 150;
-  const STEER_RESCUE = 900;
-  const MAX_SPEED = 2600;
-  const STILL_LIMIT = 0.15;
+  const PLINKO_GRAVITY = 900;
+  const SUBSTEPS = 24;
+  const RESTITUTION = 0.35;
+  const STEER_STRENGTH = 8;
+  const STEER_BELOW_PEGS = 30;
+  const STEER_RESCUE = 200;
+  const MAX_SPEED = 1200;
+  const STILL_LIMIT = 0.3;
 
   // "Жёсткая" зона точки: шарик не может подойти к её центру ближе, чем на
   // сумму радиусов, и всегда останавливается на её поверхности.
@@ -741,13 +741,12 @@ function initPlinko() {
     const R = contactRadius(ball);
     const h = dt / SUBSTEPS;
     for (let s = 0; s < SUBSTEPS; s += 1) {
-      const g = ball.wedged ? PLINKO_GRAVITY * 7 : PLINKO_GRAVITY;
-      ball.vy += g * h;
+      ball.vy += PLINKO_GRAVITY * h;
       const steer = ball.wedged ? STEER_RESCUE
         : ball.y > lastRowY ? STEER_BELOW_PEGS : STEER_STRENGTH;
       ball.vx += (targetX - ball.x) * steer * h;
-      ball.vx *= (1 - 2.0 * h);
-      if (ball.wedged) ball.vy += 800 * h;
+      ball.vx *= (1 - 0.8 * h);
+      if (ball.wedged) ball.vy += 500 * h;
       const speed = Math.hypot(ball.vx, ball.vy);
       if (speed > MAX_SPEED) { ball.vx *= MAX_SPEED / speed; ball.vy *= MAX_SPEED / speed; }
       ball.x += ball.vx * h;
@@ -790,14 +789,15 @@ function initPlinko() {
 
   function dropBall(bucket, multiplier, payout) {
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    // Стартуем над центром доски с лёгким случайным смещением — как обычный
-    // плинко-бросок, а не с фиксированной точки над первым рядом.
-    const startX = boardWidth / 2 + (Math.random() * 2 - 1) * colGap * 0.5;
+    // Зона первых трёх точек: смещение от центра в зависимости от bucket.
+    // Левым слотам (0–4) — левее, правым (6–10) — правее, центр (5) — центр.
+    const offset = (bucketIndex - 5) * 0.15;
+    const startX = boardWidth / 2 + offset * colGap * 3 + (Math.random() * 2 - 1) * colGap * 0.3;
 
     const ball = {
       x: startX,
       y: TOP_Y - 16,
-      vx: (Math.random() * 2 - 1) * 24,
+      vx: (Math.random() * 2 - 1) * 18,
       vy: 0,
       bounces: 0,
       lowestY: TOP_Y - 16,
