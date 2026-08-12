@@ -488,37 +488,140 @@ function initPlinko() {
   const dropButton = $('plinkoButton');
   const resultEl = $('plinkoResult');
 
-  // Пирамида начинается с 3 точек и заканчивается 10 точками.
-  // Восемь рядов делают поле компактным и ускоряют игровой процесс.
+  // ============================================================
+  // НАСТРОЙКИ ПОЛЯ
+  // ============================================================
+
   const ROWS = 8;
   const SLOT_COUNT = 11;
+
   const PADDING_X = 30;
   const TOP_Y = 22;
-  // Компактная зона слотов: 50 px высота, слоты заполняют всю ширину без зазоров.
   const BOTTOM_MARGIN = 50;
+
   const BALL_RADIUS = 7;
+
+  // Главное требование:
+  // полный путь шарика занимает 3.5 секунды.
+  const FLIGHT_TIME = 3.5;
+
+  // Физическая симуляция.
+  const SUBSTEPS = 8;
+
+  // Гравитация будет рассчитана автоматически
+  // относительно высоты конкретного canvas.
+  let gravity = 180;
+
+  // Сопротивление воздуха по X.
+  const AIR_DRAG_X = 0.16;
+
+  // Минимальная скорость вниз.
+  const MIN_DOWN_SPEED = 22;
+
+  // ============================================================
+  // СТОЛКНОВЕНИЯ
+  // ============================================================
+
+  // Насколько сильно peg может изменить горизонтальную скорость.
+  const PEG_SIDE_IMPULSE = 24;
+
+  // Насколько хорошо сохраняется движение вдоль поверхности peg.
+  const PEG_TANGENT_RETENTION = 0.80;
+
+  // Вертикальная энергия после удара.
+  //
+  // 1 = полностью сохраняется.
+  // 0 = полностью теряется.
+  //
+  // Нам нужен высокий показатель, чтобы шарик продолжал падать.
+  const PEG_DOWN_RETENTION = 0.97;
+
+  // Максимальная скорость по X.
+  // Это не позволяет столкновениям выбрасывать шарик слишком далеко.
+  const MAX_HORIZONTAL_SPEED = 90;
+
+  // ============================================================
+  // МЯГКОЕ НАПРАВЛЕНИЕ К СЕРВЕРНОМУ SLOT
+  // ============================================================
+  //
+  // ВАЖНО:
+  //
+  // Это НЕ телепортация.
+  // Мы НЕ задаём ball.x напрямую.
+  //
+  // Серверный bucket используется только как очень слабая
+  // долгосрочная составляющая горизонтальной скорости.
+  //
+  // Она работает постепенно на протяжении всего полёта.
+  //
+  // Поэтому шарик:
+  //
+  //   падает
+  //      ↓
+  //     ↙
+  //    ●
+  //     ↘
+  //      ↓
+  //      ●
+  //
+  // а не:
+  //
+  //   ● → → → → слот
+  //
+  const TARGET_STEERING = 0.42;
+
+  // Чем ближе шарик к концу поля,
+  // тем сильнее разрешаем небольшой контроль траектории.
+  const TARGET_STEERING_END = 0.75;
+
+  // ============================================================
+  // СОСТОЯНИЕ
+  // ============================================================
+
   let pegRadius = 3.5;
   let rowGap = 0;
   let colGap = 0;
+
   let boardWidth = 300;
   let boardHeight = 360;
 
   let currentBalls = 1;
+
   let dropping = false;
   let requestsDone = false;
+
   let balls = [];
+
   let animationId = null;
   let lastTime = 0;
+
   let pendingProfile = null;
   let pendingTotalPayout = 0;
 
-  // Коэффициент и цвет определяются одним и тем же индексом слота.
-  // Та же таблица, что и на сервере: значения в десятых долях исключают
-  // подмену 0.2/0.5 или ошибки округления при отображении результата.
-  // Таблица совпадает с серверной: индекс слота -> коэффициент.
-  const PAYOUT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
-  const PAYOUT_VALUES = PAYOUT_TENTHS.map(value => value / 10);
-  const PAYOUT_LABELS = PAYOUT_VALUES.map(value => `${value}x`);
+  // ============================================================
+  // ВЫПЛАТЫ
+  // ============================================================
+
+  const PAYOUT_TENTHS = Object.freeze([
+    2,
+    5,
+    10,
+    12,
+    15,
+    50,
+    15,
+    12,
+    10,
+    5,
+    2
+  ]);
+
+  const PAYOUT_VALUES =
+    PAYOUT_TENTHS.map(value => value / 10);
+
+  const PAYOUT_LABELS =
+    PAYOUT_VALUES.map(value => `${value}x`);
+
   const PAYOUT_COLORS_BY_VALUE = {
     '5': '#ff4d5e',
     '1.5': '#ff963d',
@@ -528,423 +631,1550 @@ function initPlinko() {
     '0.2': '#ffffff'
   };
 
+  // ============================================================
+  // RESIZE
+  // ============================================================
+
   function resizeCanvas() {
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    boardWidth = Math.max(200, rect.width || 300);
-    boardHeight = Math.max(280, rect.height || 360);
-    canvas.width = boardWidth * dpr;
-    canvas.height = boardHeight * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
-    // В нижнем ряду 10 точек образуют 11 широких слотов. Точки занимают
-    // всю ширину игрового поля с девятью равными промежутками.
-    colGap = (boardWidth - PADDING_X * 2) / (ROWS + 1);
-    pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
+
+    const dpr =
+      window.devicePixelRatio || 1;
+
+    boardWidth =
+      Math.max(
+        200,
+        rect.width || 300
+      );
+
+    boardHeight =
+      Math.max(
+        280,
+        rect.height || 360
+      );
+
+    canvas.width =
+      boardWidth * dpr;
+
+    canvas.height =
+      boardHeight * dpr;
+
+    ctx.setTransform(
+      dpr,
+      0,
+      0,
+      dpr,
+      0,
+      0
+    );
+
+    rowGap =
+      (
+        boardHeight -
+        TOP_Y -
+        BOTTOM_MARGIN
+      ) / ROWS;
+
+    colGap =
+      (
+        boardWidth -
+        PADDING_X * 2
+      ) / (ROWS + 1);
+
+    pegRadius =
+      Math.max(
+        2.5,
+        Math.min(
+          3.5,
+          colGap * 0.095
+        )
+      );
+
+    // ----------------------------------------------------------
+    // ГРАВИТАЦИЯ
+    // ----------------------------------------------------------
+    //
+    // Подбираем g так, чтобы свободное падение на высоту поля
+    // занимало около 3.5 секунд.
+    //
+    // S = 1/2 * g * t²
+    //
+    // g = 2S / t²
+    //
+
+    const flightHeight =
+      boardHeight -
+      TOP_Y -
+      BOTTOM_MARGIN;
+
+    gravity =
+      (
+        2 * flightHeight
+      ) /
+      (
+        FLIGHT_TIME *
+        FLIGHT_TIME
+      );
   }
+
+  // ============================================================
+  // PEG POSITIONS
+  // ============================================================
 
   function pegPositions() {
     const positions = [];
-    // Каждый следующий ряд шире на одну точку: 3, 4, 5 ... 10.
-    for (let row = 0; row < ROWS; row += 1) {
-      const count = row + 3;
-      const width = (count - 1) * colGap;
-      const startX = boardWidth / 2 - width / 2;
-      for (let col = 0; col < count; col += 1) {
-        positions.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
+
+    for (
+      let row = 0;
+      row < ROWS;
+      row += 1
+    ) {
+      const count =
+        row + 3;
+
+      const width =
+        (count - 1) *
+        colGap;
+
+      const startX =
+        boardWidth / 2 -
+        width / 2;
+
+      for (
+        let col = 0;
+        col < count;
+        col += 1
+      ) {
+        positions.push({
+          x:
+            startX +
+            col * colGap,
+
+          y:
+            TOP_Y +
+            row * rowGap
+        });
       }
     }
+
     return positions;
   }
 
+  // ============================================================
+  // DRAW BOARD
+  // ============================================================
+
   function drawBoard() {
-    ctx.clearRect(0, 0, boardWidth, boardHeight);
-    ctx.save();
-    const sky = ctx.createLinearGradient(0, 0, 0, boardHeight);
-    sky.addColorStop(0, 'rgba(10,14,32,0.98)');
-    sky.addColorStop(0.55, 'rgba(16,22,46,0.96)');
-    sky.addColorStop(1, 'rgba(22,30,58,0.97)');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, boardWidth, boardHeight);
-
-    ctx.strokeStyle = 'rgba(120,140,255,0.05)';
-    ctx.lineWidth = 1;
-    for (let x = PADDING_X; x < boardWidth - PADDING_X; x += 24) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, boardHeight); ctx.stroke();
-    }
-    for (let y = 0; y < boardHeight; y += 24) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(boardWidth, y); ctx.stroke();
-    }
-
-    // PAYOUT_LABELS — плоский массив строк. Индексация [0] оставляла
-    // только строку «0.2x», поэтому canvas показывал отдельные символы
-    // вместо коэффициентов в слотах.
-    const labels = PAYOUT_LABELS;
-    const colors = PAYOUT_VALUES.map(value => PAYOUT_COLORS_BY_VALUE[String(value)]);
-    const slotCount = SLOT_COUNT;
-    // Слоты заполняют всю ширину канваса без полей и зазоров.
-    const slotWidth = boardWidth / slotCount;
-    // Серверный bucket — единственный источник результата. Не вычисляем
-    // подсветку повторно по x: физическая анимация может попасть на границу
-    // соседней визуальной зоны и показать неверный множитель.
-    // Не показываем серверный bucket заранее: это раскрывает результат ещё
-    // до падения шарика. Подсветка появляется только после приземления.
-    const highlightBuckets = new Set(
-      balls.filter(ball => ball.settled).map(ball => ball.bucket).filter(Number.isInteger)
+    ctx.clearRect(
+      0,
+      0,
+      boardWidth,
+      boardHeight
     );
-    for (let i = 0; i < slotCount; i += 1) {
-      const x = slotWidth * i;
-      const y = boardHeight - BOTTOM_MARGIN + 4;
-      // Компактный слот: тёмный фон, чёткая рамка, яркая полоса сверху.
-      ctx.fillStyle = 'rgba(5, 9, 22, 0.92)';
-      ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
-      ctx.strokeStyle = 'rgba(150,170,255,0.45)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
-      // Подсветка рисуется ПОСЛЕ фона слота, чтобы была видна.
-      if (highlightBuckets.has(i) && balls.some(ball => ball.settled && ball.actualBucket === i && ball.multiplier > 0)) {
-        ctx.fillStyle = 'rgba(100,255,130,0.28)';
-        ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
-        ctx.fillStyle = 'rgba(100,255,130,0.7)';
-        ctx.fillRect(x + 2, y - 2, slotWidth - 4, 3);
-      }
-      ctx.strokeStyle = colors[i];
-      ctx.lineWidth = 2;
+
+    ctx.save();
+
+    const sky =
+      ctx.createLinearGradient(
+        0,
+        0,
+        0,
+        boardHeight
+      );
+
+    sky.addColorStop(
+      0,
+      'rgba(10,14,32,0.98)'
+    );
+
+    sky.addColorStop(
+      0.55,
+      'rgba(16,22,46,0.96)'
+    );
+
+    sky.addColorStop(
+      1,
+      'rgba(22,30,58,0.97)'
+    );
+
+    ctx.fillStyle = sky;
+
+    ctx.fillRect(
+      0,
+      0,
+      boardWidth,
+      boardHeight
+    );
+
+    // ==========================================================
+    // СЕТКА
+    // ==========================================================
+
+    ctx.strokeStyle =
+      'rgba(120,140,255,0.05)';
+
+    ctx.lineWidth = 1;
+
+    for (
+      let x = PADDING_X;
+      x < boardWidth - PADDING_X;
+      x += 24
+    ) {
       ctx.beginPath();
-      ctx.moveTo(x + 2, y - 1);
-      ctx.lineTo(x + slotWidth - 2, y - 1);
+
+      ctx.moveTo(
+        x,
+        0
+      );
+
+      ctx.lineTo(
+        x,
+        boardHeight
+      );
+
       ctx.stroke();
-      ctx.fillStyle = colors[i];
-      // Шрифт подбирается автоматически: крупный на широких слотах,
-      // уменьшается на узких, чтобы текст не вылезал за рамки.
-      const fontSize = Math.max(10, Math.min(14, slotWidth * 0.40));
-      ctx.font = `900 ${fontSize}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    }
+
+    for (
+      let y = 0;
+      y < boardHeight;
+      y += 24
+    ) {
+      ctx.beginPath();
+
+      ctx.moveTo(
+        0,
+        y
+      );
+
+      ctx.lineTo(
+        boardWidth,
+        y
+      );
+
+      ctx.stroke();
+    }
+
+    // ==========================================================
+    // СЛОТЫ
+    // ==========================================================
+
+    const slotWidth =
+      boardWidth /
+      SLOT_COUNT;
+
+    const highlightBuckets =
+      new Set(
+        balls
+          .filter(
+            ball =>
+              ball.settled
+          )
+          .map(
+            ball =>
+              ball.bucket
+          )
+          .filter(
+            Number.isInteger
+          )
+      );
+
+    const labels =
+      PAYOUT_LABELS;
+
+    const colors =
+      PAYOUT_VALUES.map(
+        value =>
+          PAYOUT_COLORS_BY_VALUE[
+            String(value)
+          ]
+      );
+
+    for (
+      let i = 0;
+      i < SLOT_COUNT;
+      i += 1
+    ) {
+      const x =
+        slotWidth * i;
+
+      const y =
+        boardHeight -
+        BOTTOM_MARGIN +
+        4;
+
+      ctx.fillStyle =
+        'rgba(5,9,22,0.92)';
+
+      ctx.fillRect(
+        x,
+        y - 2,
+        slotWidth,
+        BOTTOM_MARGIN - 2
+      );
+
+      ctx.strokeStyle =
+        'rgba(150,170,255,0.45)';
+
+      ctx.lineWidth = 1;
+
+      ctx.strokeRect(
+        x,
+        y - 2,
+        slotWidth,
+        BOTTOM_MARGIN - 2
+      );
+
+      if (
+        highlightBuckets.has(i) &&
+        balls.some(
+          ball =>
+            ball.settled &&
+            ball.actualBucket === i &&
+            ball.multiplier > 0
+        )
+      ) {
+        ctx.fillStyle =
+          'rgba(100,255,130,0.28)';
+
+        ctx.fillRect(
+          x,
+          y - 2,
+          slotWidth,
+          BOTTOM_MARGIN - 2
+        );
+
+        ctx.fillStyle =
+          'rgba(100,255,130,0.7)';
+
+        ctx.fillRect(
+          x + 2,
+          y - 2,
+          slotWidth - 4,
+          3
+        );
+      }
+
+      ctx.strokeStyle =
+        colors[i];
+
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+
+      ctx.moveTo(
+        x + 2,
+        y - 1
+      );
+
+      ctx.lineTo(
+        x +
+        slotWidth -
+        2,
+        y - 1
+      );
+
+      ctx.stroke();
+
+      ctx.fillStyle =
+        colors[i];
+
+      const fontSize =
+        Math.max(
+          10,
+          Math.min(
+            14,
+            slotWidth * 0.40
+          )
+        );
+
+      ctx.font =
+        `900 ${fontSize}px Arial`;
+
+      ctx.textAlign =
+        'center';
+
+      ctx.textBaseline =
+        'middle';
+
+      ctx.strokeStyle =
+        'rgba(0,0,0,0.6)';
+
       ctx.lineWidth = 2.5;
-      ctx.strokeText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
-      ctx.shadowColor = colors[i];
+
+      const labelY =
+        y +
+        (BOTTOM_MARGIN - 2) /
+          2 +
+        1;
+
+      ctx.strokeText(
+        labels[i],
+        x +
+          slotWidth / 2,
+        labelY
+      );
+
+      ctx.shadowColor =
+        colors[i];
+
       ctx.shadowBlur = 10;
-      ctx.fillText(labels[i], x + slotWidth / 2, y + (BOTTOM_MARGIN - 2) / 2 + 1);
+
+      ctx.fillText(
+        labels[i],
+        x +
+          slotWidth / 2,
+        labelY
+      );
+
       ctx.shadowBlur = 0;
     }
 
-    const pegs = pegPositions();
+    // ==========================================================
+    // PEG
+    // ==========================================================
+
+    const pegs =
+      pegPositions();
+
     ctx.save();
-    ctx.fillStyle = 'rgba(140,170,255,0.75)';
-    ctx.shadowColor = 'rgba(130,170,255,0.9)';
+
+    ctx.fillStyle =
+      'rgba(140,170,255,0.75)';
+
+    ctx.shadowColor =
+      'rgba(130,170,255,0.9)';
+
     ctx.shadowBlur = 6;
+
     for (const peg of pegs) {
       ctx.beginPath();
-      ctx.arc(peg.x, peg.y, pegRadius, 0, Math.PI * 2);
+
+      ctx.arc(
+        peg.x,
+        peg.y,
+        pegRadius,
+        0,
+        Math.PI * 2
+      );
+
       ctx.fill();
     }
+
     ctx.restore();
+
     ctx.restore();
   }
+
+  // ============================================================
+  // DRAW BALL
+  // ============================================================
 
   function renderFrame() {
     drawBoard();
+
     for (const ball of balls) {
-        ctx.save();
-        const gradient = ctx.createRadialGradient(
-          ball.x - 2, ball.y - 2, 1,
-          ball.x, ball.y, BALL_RADIUS + 1
+      ctx.save();
+
+      const gradient =
+        ctx.createRadialGradient(
+          ball.x - 2,
+          ball.y - 2,
+          1,
+          ball.x,
+          ball.y,
+          BALL_RADIUS + 1
         );
-        gradient.addColorStop(0, '#fff6c8');
-        gradient.addColorStop(0.45, '#ffd04a');
-        gradient.addColorStop(1, '#ff9d1f');
-        ctx.fillStyle = gradient;
-        if (!ball.settled) {
-          ctx.shadowColor = 'rgba(255,180,60,0.9)';
-          ctx.shadowBlur = 12;
-        }
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+
+      gradient.addColorStop(
+        0,
+        '#fff6c8'
+      );
+
+      gradient.addColorStop(
+        0.45,
+        '#ffd04a'
+      );
+
+      gradient.addColorStop(
+        1,
+        '#ff9d1f'
+      );
+
+      ctx.fillStyle =
+        gradient;
+
+      if (!ball.settled) {
+        ctx.shadowColor =
+          'rgba(255,180,60,0.9)';
+
+        ctx.shadowBlur = 12;
+      }
+
+      ctx.beginPath();
+
+      ctx.arc(
+        ball.x,
+        ball.y,
+        BALL_RADIUS,
+        0,
+        Math.PI * 2
+      );
+
+      ctx.fill();
+
+      ctx.restore();
     }
   }
 
-  // ===== ФИЗИКА ПЛИНКО: честные столкновения =====
-  // Шарик падает под действием гравитации, отскакивает от колышков
-  // и стен. Никаких «путевых точек»: только физика реального времени.
-  const PLINKO_GRAVITY = 72;        // px/с²
-  const PEG_RESTITUTION = 0.18;     // почти без отскока — только скольжение
-  const STEER_STRENGTH = 3.2;       // мягкое направление к целевому слоту
-  const SUBSTEPS = 6;               // подшагов для точных коллизий
-  const SPAWN_DELAY_JITTER = 0.12;
+  // ============================================================
+  // ЦЕЛЕВАЯ ТОЧКА
+  // ============================================================
+  //
+  // Это единственное место, где серверный bucket превращается
+  // в координату.
+  //
+  // Но мы НЕ устанавливаем ball.x = targetX.
+  //
+  // Координата используется только для вычисления очень мягкого
+  // горизонтального ускорения.
+  //
 
-  function settleBall(ball) {
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    ball.actualBucket = ball.bucket;
-    ball.x = slotWidth * (ball.bucket + 0.5);
-    ball.y = bottomY;
-    ball.multiplier = Number(ball.multiplier);
-    ball.payout = Number(ball.payout);
-    ball.vx = 0;
-    ball.vy = 0;
-    ball.settled = true;
+  function getTargetX(ball) {
+    const slotWidth =
+      boardWidth /
+      SLOT_COUNT;
+
+    return (
+      slotWidth *
+      (ball.bucket + 0.5)
+    );
   }
 
-  // Ядро: свободное падение + коллизии с каждой точкой.
-  function updateBall(ball, dt) {
-    if (ball.settled) return;
+  // ============================================================
+  // МЯГКАЯ КОРРЕКЦИЯ К ЦЕЛЕВОМУ SLOT
+  // ============================================================
+  //
+  // Самое важное отличие от старого кода:
+  //
+  // НЕТ:
+  //
+  // ball.x += ...
+  //
+  // НЕТ:
+  //
+  // ball.x = targetX
+  //
+  // НЕТ:
+  //
+  // резкого vx = ...
+  //
+  // Мы только немного меняем ускорение X.
+  //
 
-    if (ball.spawnDelay > 0) {
+  function applyTargetGuidance(
+    ball,
+    h
+  ) {
+    const targetX =
+      getTargetX(ball);
+
+    const dx =
+      targetX -
+      ball.x;
+
+    const progress =
+      Math.min(
+        1,
+        ball.elapsed /
+          FLIGHT_TIME
+      );
+
+    // В начале очень слабое направление.
+    //
+    // К концу оно немного усиливается,
+    // чтобы результат действительно попадал
+    // в нужный слот.
+    const steering =
+      TARGET_STEERING +
+      (
+        TARGET_STEERING_END -
+        TARGET_STEERING
+      ) *
+      progress;
+
+    // Чем дальше шарик от цели,
+    // тем сильнее небольшое ускорение.
+    //
+    // Но оно ограничено.
+    const acceleration =
+      Math.max(
+        -34,
+        Math.min(
+          34,
+          dx * steering
+        )
+      );
+
+    ball.vx +=
+      acceleration * h;
+  }
+
+  // ============================================================
+  // СТОЛКНОВЕНИЕ С PEG
+  // ============================================================
+
+  function collideWithPeg(
+    ball,
+    peg,
+    contactRadius
+  ) {
+    const dx =
+      ball.x -
+      peg.x;
+
+    const dy =
+      ball.y -
+      peg.y;
+
+    const distSq =
+      dx * dx +
+      dy * dy;
+
+    if (
+      distSq >=
+      contactRadius *
+      contactRadius
+    ) {
+      return;
+    }
+
+    const distance =
+      Math.sqrt(
+        distSq
+      );
+
+    if (
+      distance < 0.0001
+    ) {
+      return;
+    }
+
+    // Нормаль столкновения.
+    const nx =
+      dx / distance;
+
+    const ny =
+      dy / distance;
+
+    // Проекция скорости на нормаль.
+    const normalVelocity =
+      ball.vx * nx +
+      ball.vy * ny;
+
+    // Уже удаляется от peg.
+    if (
+      normalVelocity >= 0
+    ) {
+      return;
+    }
+
+    // ==========================================================
+    // МИКРО-КОРРЕКЦИЯ
+    // ==========================================================
+    //
+    // Исправляет только физическое проникновение окружностей.
+    //
+    // Никаких больших перемещений.
+    //
+
+    const penetration =
+      contactRadius -
+      distance;
+
+    if (
+      penetration > 0
+    ) {
+      const correction =
+        Math.min(
+          penetration * 0.50,
+          1.0
+        );
+
+      ball.x +=
+        nx *
+        correction;
+
+      ball.y +=
+        ny *
+        correction;
+    }
+
+    // ==========================================================
+    // ТАНГЕНЦИАЛЬНАЯ СКОРОСТЬ
+    // ==========================================================
+
+    const tx = -ny;
+    const ty = nx;
+
+    const tangentVelocity =
+      ball.vx * tx +
+      ball.vy * ty;
+
+    const preservedTangent =
+      tangentVelocity *
+      PEG_TANGENT_RETENTION;
+
+    ball.vx =
+      tx *
+      preservedTangent;
+
+    ball.vy =
+      ty *
+      preservedTangent;
+
+    // ==========================================================
+    // БОКОВОЙ ИМПУЛЬС
+    // ==========================================================
+
+    const impact =
+      Math.min(
+        1,
+        Math.abs(
+          normalVelocity
+        ) / 110
+      );
+
+    let direction =
+      Math.sign(nx);
+
+    if (
+      direction === 0
+    ) {
+      direction =
+        ball.vx >= 0
+          ? 1
+          : -1;
+    }
+
+    const sideImpulse =
+      PEG_SIDE_IMPULSE *
+      (
+        0.35 +
+        impact * 0.65
+      );
+
+    ball.vx +=
+      direction *
+      sideImpulse;
+
+    // ==========================================================
+    // НЕ ДАЁМ ШАРИКУ ПРЫГНУТЬ ВВЕРХ
+    // ==========================================================
+
+    const downwardSpeed =
+      Math.max(
+        MIN_DOWN_SPEED,
+        ball.vy
+      );
+
+    ball.vy =
+      downwardSpeed *
+      PEG_DOWN_RETENTION;
+
+    // Ограничиваем X.
+    ball.vx =
+      Math.max(
+        -MAX_HORIZONTAL_SPEED,
+        Math.min(
+          MAX_HORIZONTAL_SPEED,
+          ball.vx
+        )
+      );
+
+    // Время последнего столкновения.
+    // Используется для небольшого визуального эффекта
+    // инерции и защиты от повторного контакта.
+    ball.lastCollisionTime =
+      ball.elapsed;
+  }
+
+  // ============================================================
+  // ФИЗИКА ШАРИКА
+  // ============================================================
+
+  function updateBall(
+    ball,
+    dt
+  ) {
+    if (
+      ball.settled
+    ) {
+      return;
+    }
+
+    if (
+      ball.spawnDelay > 0
+    ) {
       ball.spawnDelay -= dt;
       return;
     }
 
-    const targetX = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
-    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    const pegs = pegPositions();
-    const contactR = pegRadius + BALL_RADIUS;
-    const h = dt / SUBSTEPS;
+    // ==========================================================
+    // ВРЕМЯ
+    // ==========================================================
 
-    for (let s = 0; s < SUBSTEPS; s += 1) {
-      // Гравитация.
-      ball.vy += PLINKO_GRAVITY * h;
+    ball.elapsed += dt;
 
-      // Мягкий горизонтальный «довод» к целевому слоту — почти незаметен.
-      ball.vx += (targetX - ball.x) * STEER_STRENGTH * h;
+    ball.elapsed =
+      Math.min(
+        FLIGHT_TIME,
+        ball.elapsed
+      );
 
-      // Лёгкое сопротивление воздуха.
-      ball.vx *= (1 - 0.45 * h);
+    // ==========================================================
+    // ПОДШАГ
+    // ==========================================================
 
-      // Перемещение.
-      ball.x += ball.vx * h;
-      ball.y += ball.vy * h;
+    const pegs =
+      pegPositions();
 
-      // Отскок от стен — мягкий, без сильного отбрасывания.
-      if (ball.x < BALL_RADIUS) {
-        ball.x = BALL_RADIUS;
-        ball.vx = Math.abs(ball.vx) * 0.3;
+    const contactRadius =
+      pegRadius +
+      BALL_RADIUS;
+
+    const h =
+      dt /
+      SUBSTEPS;
+
+    for (
+      let step = 0;
+      step < SUBSTEPS;
+      step += 1
+    ) {
+      // --------------------------------------------------------
+      // ГРАВИТАЦИЯ
+      // --------------------------------------------------------
+
+      ball.vy +=
+        gravity * h;
+
+      // --------------------------------------------------------
+      // МЯГКОЕ НАПРАВЛЕНИЕ К ЦЕЛЕ
+      // --------------------------------------------------------
+      //
+      // Это НЕ перенос координат.
+      //
+      // Шарик всё время продолжает двигаться
+      // под действием собственной скорости.
+      //
+
+      applyTargetGuidance(
+        ball,
+        h
+      );
+
+      // --------------------------------------------------------
+      // СОПРОТИВЛЕНИЕ ВОЗДУХА
+      // --------------------------------------------------------
+
+      ball.vx *=
+        Math.max(
+          0,
+          1 -
+          AIR_DRAG_X * h
+        );
+
+      // --------------------------------------------------------
+      // МИНИМАЛЬНАЯ СКОРОСТЬ ВНИЗ
+      // --------------------------------------------------------
+
+      if (
+        ball.vy <
+        MIN_DOWN_SPEED
+      ) {
+        ball.vy +=
+          (
+            MIN_DOWN_SPEED -
+            ball.vy
+          ) *
+          0.18;
       }
-      if (ball.x > boardWidth - BALL_RADIUS) {
-        ball.x = boardWidth - BALL_RADIUS;
-        ball.vx = -Math.abs(ball.vx) * 0.3;
+
+      // --------------------------------------------------------
+      // ДВИЖЕНИЕ
+      // --------------------------------------------------------
+
+      ball.x +=
+        ball.vx * h;
+
+      ball.y +=
+        ball.vy * h;
+
+      // --------------------------------------------------------
+      // ЛЕВАЯ СТЕНА
+      // --------------------------------------------------------
+
+      if (
+        ball.x <
+        BALL_RADIUS
+      ) {
+        ball.x =
+          BALL_RADIUS;
+
+        ball.vx =
+          Math.abs(
+            ball.vx
+          ) * 0.30;
       }
 
-      // Честные столкновения с колышками.
-      for (const peg of pegs) {
-        const dx = ball.x - peg.x;
-        const dy = ball.y - peg.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist >= contactR || dist <= 1e-6) continue;
+      // --------------------------------------------------------
+      // ПРАВАЯ СТЕНА
+      // --------------------------------------------------------
 
-        // Выталкивание из колышка.
-        const nx = dx / dist;
-        const ny = dy / dist;
-        ball.x = peg.x + nx * contactR;
-        ball.y = peg.y + ny * contactR;
+      if (
+        ball.x >
+        boardWidth -
+        BALL_RADIUS
+      ) {
+        ball.x =
+          boardWidth -
+          BALL_RADIUS;
 
-        const vn = ball.vx * nx + ball.vy * ny;
-        if (vn >= 0) continue; // шарик уже удаляется
+        ball.vx =
+          -Math.abs(
+            ball.vx
+          ) * 0.30;
+      }
 
-        // Почти нулевая упругость: шарик не отскакивает, а «скользит» мимо.
-        ball.vx -= (1 + PEG_RESTITUTION) * vn * nx;
-        ball.vy -= (1 + PEG_RESTITUTION) * vn * ny;
+      // --------------------------------------------------------
+      // PEG
+      // --------------------------------------------------------
 
-        // Жёсткая гарантия: вектор скорости всегда вниз.
-        if (ball.vy < 10) ball.vy = 10;
+      for (
+        const peg of pegs
+      ) {
+        collideWithPeg(
+          ball,
+          peg,
+          contactRadius
+        );
       }
     }
 
-    // Достиг дна — попадает в слот.
-    if (ball.y >= bottomY) {
-      ball.y = bottomY;
+    // ==========================================================
+    // ФИНИШ
+    // ==========================================================
+
+    const bottomY =
+      boardHeight -
+      BOTTOM_MARGIN +
+      6;
+
+    if (
+      ball.y >= bottomY
+    ) {
+      ball.y =
+        bottomY;
+
       settleBall(ball);
+
+      return;
+    }
+
+    // ==========================================================
+    // ЗАЩИТА ОТ ЗАВИСАНИЯ
+    // ==========================================================
+
+    if (
+      ball.elapsed >=
+      FLIGHT_TIME
+    ) {
+      ball.vy =
+        Math.max(
+          ball.vy,
+          MIN_DOWN_SPEED
+        );
     }
   }
 
-  function dropBall(bucket, multiplier, payout) {
-    const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    const targetX = (boardWidth / SLOT_COUNT) * (bucketIndex + 0.5);
+  // ============================================================
+  // СОЗДАНИЕ ШАРИКА
+  // ============================================================
 
-    // Спавн в зоне трёх первых колышков.
-    const firstRowWidth = colGap * 2;
-    const firstRowStartX = boardWidth / 2 - firstRowWidth / 2;
-    const normalized = bucketIndex / (SLOT_COUNT - 1);
-    const randomX = firstRowStartX + Math.random() * firstRowWidth;
-    const biasedX = firstRowStartX + normalized * firstRowWidth;
-    const spawnX = randomX * 0.4 + biasedX * 0.6;
+  function dropBall(
+    bucket,
+    multiplier,
+    payout
+  ) {
+    const bucketIndex =
+      Math.max(
+        0,
+        Math.min(
+          SLOT_COUNT - 1,
+          Math.floor(
+            Number(bucket)
+          )
+        )
+      );
 
-    // Лёгкий начальный импульс в сторону цели.
-    const startVx = (targetX - spawnX) * 0.25 + (Math.random() - 0.5) * 5;
+    // ----------------------------------------------------------
+    // Стартовая точка.
+    //
+    // Никакой привязки к bucket здесь нет.
+    // ----------------------------------------------------------
+
+    const centerX =
+      boardWidth / 2;
+
+    const spawnOffset =
+      (
+        Math.random() -
+        0.5
+      ) *
+      Math.min(
+        colGap * 0.45,
+        16
+      );
+
+    const spawnX =
+      centerX +
+      spawnOffset;
+
+    // Маленькая начальная горизонтальная скорость.
+    const startVx =
+      (
+        Math.random() -
+        0.5
+      ) * 8;
 
     const ball = {
       x: spawnX,
-      y: TOP_Y - 16,
+
+      y:
+        TOP_Y -
+        BALL_RADIUS -
+        5,
+
       vx: startVx,
+
+      // Шарик начинает падать именно под
+      // воздействием гравитации.
       vy: 0,
-      spawnDelay: Math.random() * SPAWN_DELAY_JITTER,
+
+      // Собственный таймер.
+      elapsed: 0,
+
+      spawnDelay: 0,
+
       settled: false,
+
+      // Серверный результат.
+      //
+      // Используется для финального слота
+      // и мягкого направления.
       bucket: bucketIndex,
+
       multiplier,
-      payout: Number(payout)
+
+      payout:
+        Number(payout),
+
+      // Для контроля столкновений.
+      lastCollisionTime: -999
     };
+
     balls.push(ball);
+
     return ball;
   }
 
+  // ============================================================
+  // ANIMATION LOOP
+  // ============================================================
+
   function animate(time) {
-    const dt = Math.min(0.033, (time - lastTime) / 1000 || 0.016);
+    const dt =
+      Math.min(
+        0.033,
+        (
+          time -
+          lastTime
+        ) / 1000 ||
+        0.016
+      );
+
     lastTime = time;
+
     updateAllBalls(dt);
+
     renderFrame();
-    const moving = balls.filter(ball => !ball.settled);
-    if (moving.length || !requestsDone) {
-      // Запросы на следующие шарики могут ещё выполняться. Не завершаем
-      // раунд после первого долетевшего шарика.
-      animationId = requestAnimationFrame(animate);
-    } else {
-      animationId = null;
-      // Завершённая попытка: финальная подсветка уже отрисована drawBoard().
-      drawBoard();
-      // Выплата приходит с сервера и уже рассчитана по тому же bucket.
-      // Нельзя пересчитывать её через локальный input: при нескольких шариках
-      // или изменении ставки во время раунда это давало неверный итог.
-      // Используем сумму, которую подтвердил сервер. Она уже рассчитана по
-      // каждому bucket и не зависит от округления/повторного расчёта клиента.
-      // totalPayout — единственный источник итоговой выплаты. Не используем
-      // старую сумму предыдущего броска и не пересчитываем её по анимации.
-      const balance = pendingTotalPayout;
-      resultEl.textContent = `Выигрыш: +${balance} ⭐`;
-      resultEl.classList.add('show');
-      resultEl.classList.add('win');
-      resultEl.classList.remove('lose');
-      setTimeout(() => resultEl.classList.remove('show'), 2600);
-      playWinSound();
-      // Теперь обновляем баланс: все шарики уже долетели, анимация завершена.
-      if (pendingProfile) {
-        render({ first_name: profile.name }, pendingProfile);
-        pendingProfile = null;
-      }
-      // После показа результата полностью очищаем сцену. Иначе settled-шары
-      // могли сохраниться и попасть в следующую попытку.
-      dropping = false;
-      balls.length = 0;
-      renderFrame();
-      dropButton.disabled = false;
-      updateDropButton();
+
+    const moving =
+      balls.filter(
+        ball =>
+          !ball.settled
+      );
+
+    if (
+      moving.length ||
+      !requestsDone
+    ) {
+      animationId =
+        requestAnimationFrame(
+          animate
+        );
+
+      return;
     }
-  }
 
-  function updateAllBalls(dt) {
-    for (const ball of balls) {
-      if (!ball.settled) updateBall(ball, dt);
+    // ==========================================================
+    // ВСЕ ШАРИКИ ЗАВЕРШИЛИ ПАДЕНИЕ
+    // ==========================================================
+
+    animationId = null;
+
+    drawBoard();
+
+    const balance =
+      pendingTotalPayout;
+
+    resultEl.textContent =
+      `Выигрыш: +${balance} ⭐`;
+
+    resultEl.classList.add(
+      'show'
+    );
+
+    resultEl.classList.add(
+      'win'
+    );
+
+    resultEl.classList.remove(
+      'lose'
+    );
+
+    setTimeout(
+      () =>
+        resultEl.classList.remove(
+          'show'
+        ),
+      2600
+    );
+
+    playWinSound();
+
+    // Обновляем баланс после окончания
+    // всей физической анимации.
+    if (
+      pendingProfile
+    ) {
+      render(
+        {
+          first_name:
+            profile.name
+        },
+        pendingProfile
+      );
+
+      pendingProfile =
+        null;
     }
-  }
 
-  function updateDropButton() {
-    const bet = Math.max(10, Number(betInput.value) || 10);
-    const ballsLabel = currentBalls === 1 ? 'шарик' : 'шариков';
-    dropButton.textContent = `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
-  }
+    dropping = false;
 
-  const ballsButtons = [...document.querySelectorAll('.plinko-balls-btn')];
-  function setBallsCount(count) {
-    currentBalls = Math.max(1, Math.min(10, Number(count) || 1));
-    ballsButtons.forEach(btn => btn.classList.toggle('active', Number(btn.dataset.balls) === currentBalls));
+    balls.length = 0;
+
+    renderFrame();
+
+    dropButton.disabled =
+      false;
+
     updateDropButton();
   }
 
-  dropButton.onclick = async () => {
-    if (!profile) return toast('Подождите, профиль ещё загружается');
-    if (dropping) return;
-    const bet = Math.max(10, Math.floor(Number(betInput.value) || 10));
-    betInput.value = bet;
-    dropping = true;
-    requestsDone = false;
-    dropButton.disabled = true;
-    resultEl.classList.remove('show');
-    pendingTotalPayout = 0;
-    // Новая попытка: убираем шарики предыдущей попытки с доски.
-    balls = [];
-    if (animationId) cancelAnimationFrame(animationId);
-    animationId = null;
-    renderFrame();
-    const ballsToDrop = currentBalls;
-    let lastProfile = null;
-    try {
-      // Один запрос атомарно обрабатывает весь набор шариков. Сервер возвращает
-      // отдельный результат для каждого шарика, поэтому коэффициенты не смешиваются.
-      const data = await request('/api/plinko/drop', {
-        method: 'POST',
-        body: JSON.stringify({ bet, count: ballsToDrop })
-      });
-      lastProfile = data.profile;
-      if (!Array.isArray(data.results) || data.results.length !== ballsToDrop
-        || !Number.isFinite(Number(data.totalPayout))) {
-        throw Error('Сервер вернул некорректный результат Плинко');
+  // ============================================================
+  // ОБНОВЛЕНИЕ ВСЕХ ШАРИКОВ
+  // ============================================================
+
+  function updateAllBalls(dt) {
+    for (
+      const ball of balls
+    ) {
+      if (
+        !ball.settled
+      ) {
+        updateBall(
+          ball,
+          dt
+        );
       }
-      // Проверяем каждый результат против ставки и таблицы коэффициентов.
-      // Так старый кешированный клиент или подмена bucket не сможет показать
-      // 10 вместо 12 для 1.2x либо 15 вместо 2 для 0.2x.
-      const expectedPayout = result => {
-        const tenths = PAYOUT_TENTHS[Number(result.bucket)];
-        const multiplier = Number(result.multiplier);
-        const coefficientTenths = Number(result.coefficientTenths);
-        const payout = Number(result.payout);
-        if (!Number.isInteger(tenths)
-          || coefficientTenths !== tenths
-          || multiplier !== tenths / 10
-          || payout !== Math.floor(bet * coefficientTenths / 10)) {
-          throw Error('Сервер вернул несоответствующий коэффициент Плинко');
-        }
-        return payout;
-      };
-      const checkedTotalPayout = data.results.reduce((sum, result) => sum + expectedPayout(result), 0);
-      if (Number(data.totalPayout) !== checkedTotalPayout) {
-        throw Error('Сервер вернул несоответствующую общую выплату Плинко');
-      }
-      pendingTotalPayout = checkedTotalPayout;
-      if (!Number.isFinite(pendingTotalPayout)) throw Error('Сервер вернул некорректную выплату');
-      pendingProfile = lastProfile;
-      // Запускаем анимацию до добавления шариков и выпускаем их с интервалом.
-      // Так шарики не появляются и не падают одновременно.
-      lastTime = performance.now();
-      animationId = requestAnimationFrame(animate);
-      for (const [index, result] of data.results.entries()) {
-        if (index > 0) await new Promise(resolve => setTimeout(resolve, 360));
-        dropBall(result.bucket, result.multiplier, result.payout);
-      }
-      // Ждём, пока последний шарик долетит: после этого animate сам разблокирует
-      // кнопку и обновит баланс через render().
-      requestsDone = true;
-    } catch (error) {
-      // При ошибке одного из запросов останавливаем текущую анимацию и
-      // очищаем уже полученные шарики. Иначе requestsDone остаётся false,
-      // requestAnimationFrame продолжает работать бесконечно, а старая
-      // попытка видна при следующем броске.
-      requestsDone = true;
-      dropping = false;
-      pendingProfile = null;
-      pendingTotalPayout = 0;
-      if (animationId) cancelAnimationFrame(animationId);
-      animationId = null;
-      balls = [];
-      renderFrame();
-      toast(error.message);
-      dropButton.disabled = false;
-      updateDropButton();
     }
-  };
+  }
 
-  betInput.addEventListener('input', updateDropButton);
-  ballsButtons.forEach(btn => btn.addEventListener('click', () => {
-    if (!dropping) setBallsCount(btn.dataset.balls);
-  }));
+  // ============================================================
+  // КНОПКА
+  // ============================================================
 
-  window.addEventListener('resize', () => { resizeCanvas(); drawBoard(); });
+  function updateDropButton() {
+    const bet =
+      Math.max(
+        10,
+        Number(
+          betInput.value
+        ) || 10
+      );
+
+    const ballsLabel =
+      currentBalls === 1
+        ? 'шарик'
+        : 'шариков';
+
+    dropButton.textContent =
+      `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
+  }
+
+  const ballsButtons =
+    [
+      ...document.querySelectorAll(
+        '.plinko-balls-btn'
+      )
+    ];
+
+  function setBallsCount(
+    count
+  ) {
+    currentBalls =
+      Math.max(
+        1,
+        Math.min(
+          10,
+          Number(count) || 1
+        )
+      );
+
+    ballsButtons.forEach(
+      btn =>
+        btn.classList.toggle(
+          'active',
+          Number(
+            btn.dataset.balls
+          ) === currentBalls
+        )
+    );
+
+    updateDropButton();
+  }
+
+  // ============================================================
+  // ЗАПУСК БРОСКА
+  // ============================================================
+
+  dropButton.onclick =
+    async () => {
+      if (!profile) {
+        return toast(
+          'Подождите, профиль ещё загружается'
+        );
+      }
+
+      if (dropping) {
+        return;
+      }
+
+      const bet =
+        Math.max(
+          10,
+          Math.floor(
+            Number(
+              betInput.value
+            ) || 10
+          )
+        );
+
+      betInput.value =
+        bet;
+
+      dropping = true;
+
+      requestsDone =
+        false;
+
+      dropButton.disabled =
+        true;
+
+      resultEl.classList.remove(
+        'show'
+      );
+
+      pendingTotalPayout =
+        0;
+
+      // Очищаем старую попытку.
+      balls = [];
+
+      if (animationId) {
+        cancelAnimationFrame(
+          animationId
+        );
+      }
+
+      animationId =
+        null;
+
+      renderFrame();
+
+      const ballsToDrop =
+        currentBalls;
+
+      let lastProfile =
+        null;
+
+      try {
+        // ======================================================
+        // СЕРВЕР
+        // ======================================================
+
+        const data =
+          await request(
+            '/api/plinko/drop',
+            {
+              method: 'POST',
+
+              body:
+                JSON.stringify({
+                  bet,
+                  count:
+                    ballsToDrop
+                })
+            }
+          );
+
+        lastProfile =
+          data.profile;
+
+        if (
+          !Array.isArray(
+            data.results
+          ) ||
+          data.results.length !==
+            ballsToDrop ||
+          !Number.isFinite(
+            Number(
+              data.totalPayout
+            )
+          )
+        ) {
+          throw Error(
+            'Сервер вернул некорректный результат Плинко'
+          );
+        }
+
+        // ======================================================
+        // ПРОВЕРКА РЕЗУЛЬТАТОВ
+        // ======================================================
+
+        const expectedPayout =
+          result => {
+            const tenths =
+              PAYOUT_TENTHS[
+                Number(
+                  result.bucket
+                )
+              ];
+
+            const multiplier =
+              Number(
+                result.multiplier
+              );
+
+            const coefficientTenths =
+              Number(
+                result.coefficientTenths
+              );
+
+            const payout =
+              Number(
+                result.payout
+              );
+
+            if (
+              !Number.isInteger(
+                tenths
+              ) ||
+              coefficientTenths !==
+                tenths ||
+              multiplier !==
+                tenths / 10 ||
+              payout !==
+                Math.floor(
+                  bet *
+                  coefficientTenths /
+                  10
+                )
+            ) {
+              throw Error(
+                'Сервер вернул несоответствующий коэффициент Плинко'
+              );
+            }
+
+            return payout;
+          };
+
+        const checkedTotalPayout =
+          data.results.reduce(
+            (
+              sum,
+              result
+            ) =>
+              sum +
+              expectedPayout(
+                result
+              ),
+            0
+          );
+
+        if (
+          Number(
+            data.totalPayout
+          ) !==
+          checkedTotalPayout
+        ) {
+          throw Error(
+            'Сервер вернул несоответствующую общую выплату Плинко'
+          );
+        }
+
+        pendingTotalPayout =
+          checkedTotalPayout;
+
+        pendingProfile =
+          lastProfile;
+
+        // ======================================================
+        // ЗАПУСК ANIMATION LOOP
+        // ======================================================
+
+        lastTime =
+          performance.now();
+
+        animationId =
+          requestAnimationFrame(
+            animate
+          );
+
+        // ======================================================
+        // ПОСЛЕДОВАТЕЛЬНЫЙ ЗАПУСК ШАРИКОВ
+        // ======================================================
+
+        for (
+          const [
+            index,
+            result
+          ]
+          of data.results.entries()
+        ) {
+          if (
+            index > 0
+          ) {
+            await new Promise(
+              resolve =>
+                setTimeout(
+                  resolve,
+                  450
+                )
+            );
+          }
+
+          dropBall(
+            result.bucket,
+            result.multiplier,
+            result.payout
+          );
+        }
+
+        requestsDone =
+          true;
+
+      } catch (
+        error
+      ) {
+        requestsDone =
+          true;
+
+        dropping =
+          false;
+
+        pendingProfile =
+          null;
+
+        pendingTotalPayout =
+          0;
+
+        if (
+          animationId
+        ) {
+          cancelAnimationFrame(
+            animationId
+          );
+        }
+
+        animationId =
+          null;
+
+        balls = [];
+
+        renderFrame();
+
+        toast(
+          error.message
+        );
+
+        dropButton.disabled =
+          false;
+
+        updateDropButton();
+      }
+    };
+
+  // ============================================================
+  // UI
+  // ============================================================
+
+  betInput.addEventListener(
+    'input',
+    updateDropButton
+  );
+
+  ballsButtons.forEach(
+    btn =>
+      btn.addEventListener(
+        'click',
+        () => {
+          if (
+            !dropping
+          ) {
+            setBallsCount(
+              btn.dataset.balls
+            );
+          }
+        }
+      )
+  );
+
+  window.addEventListener(
+    'resize',
+    () => {
+      resizeCanvas();
+      drawBoard();
+    }
+  );
 
   resizeCanvas();
   drawBoard();
   updateDropButton();
 }
+
 // ============================ КОНЕЦ ПЛИНКО ============================
 
 request('/api/me').then(x=>{ render(x.user,x.profile); return restoreRocketRound(); }).then(()=>initPlinko()).catch(e=>toast(e.message));
