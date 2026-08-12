@@ -499,17 +499,20 @@ function initPlinko() {
   const BOTTOM_MARGIN = 50;
   const BALL_RADIUS = 7;
 
-  // Автоматически под ~3.5 сек при resize.
-  let gravity = 72;
+  // Подобрано под размер канваса: шарик должен быстро и естественно долетать до нижнего ряда.
+  let gravity = 850;
 
   // Столкновения.
-  const RESTITUTION = 0.04;       // почти ноль: без пружины
-  const TANGENT_KEEP = 0.88;      // сохраняем скольжение вдоль колышка
-  const SUBSTEPS = 6;             // подшагов/кадр
+  const RESTITUTION = 0.28;       // мягкий, но заметный отскок
+  const TANGENT_KEEP = 0.94;      // почти полное скольжение по касательной
+  const SUBSTEPS = 16;            // мелкие шаги не дают шарику проскакивать колышки
 
-  // Довод к целевому слоту — почти незаметен.
-  const STEER = 0.38;
-  const STEER_END = 0.65;
+  // Лёгкая коррекция сохраняет серверный результат, не превращая падение в прямое ведение.
+  const STEER = 2.8;
+  const STEER_END = 4.5;
+  const STEER_BELOW_PEGS = 12;
+  const STEER_RESCUE = 120;
+  const STILL_LIMIT = 0.35;
 
   const SPAWN_DELAY_JITTER = 0.10;
 
@@ -525,8 +528,10 @@ function initPlinko() {
   let balls = [];
   let animationId = null;
   let lastTime = 0;
+  let physicsAccumulator = 0;
   let pendingProfile = null;
   let pendingTotalPayout = 0;
+  const PHYSICS_STEP = 1 / 120;
 
   const PAYOUT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
   const PAYOUT_VALUES = PAYOUT_TENTHS.map(v => v / 10);
@@ -546,8 +551,7 @@ function initPlinko() {
     rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
     colGap = (boardWidth - PADDING_X * 2) / (ROWS + 1);
     pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
-    const flightHeight = boardHeight - TOP_Y - BOTTOM_MARGIN;
-    gravity = 2 * flightHeight / (3.5 * 3.5);
+    gravity = 850;
   }
 
   // ---- геометрия ------------------------------------------------------
@@ -634,6 +638,10 @@ function initPlinko() {
     drawBoard();
     for (const ball of balls) {
       ctx.save();
+      const impact = ball.impact || 0;
+      ctx.translate(ball.x, ball.y);
+      ctx.scale(1 + impact * 0.14, 1 - impact * 0.10);
+      ctx.translate(-ball.x, -ball.y);
       const grad = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 1, ball.x, ball.y, BALL_RADIUS + 1);
       grad.addColorStop(0, '#fff6c8');
       grad.addColorStop(0.45, '#ffd04a');
@@ -675,9 +683,7 @@ function initPlinko() {
     // Нормальная — почти полностью гасится.
     ball.vx = tx * vt * TANGENT_KEEP - nx * Math.abs(vn) * RESTITUTION;
     ball.vy = ty * vt * TANGENT_KEEP - ny * Math.abs(vn) * RESTITUTION;
-
-    // Шарик всегда продолжает падать вниз.
-    if (ball.vy < 6) ball.vy = 6;
+    ball.impact = Math.min(1, Math.abs(vn) / 360);
     return true;
   }
 
@@ -696,21 +702,46 @@ function initPlinko() {
 
   function updateBall(ball, dt) {
     if (ball.settled) return;
-    if (ball.spawnDelay > 0) { ball.spawnDelay -= dt; return; }
+    if (ball.spawnDelay > 0) { ball.spawnDelay -= dt; ball.impact = 0; return; }
 
     ball.elapsed += dt;
     const targetX = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
     const pegs = pegPositions();
-    const contactR = pegRadius + BALL_RADIUS;
+    const lastRowY = TOP_Y + (ROWS - 1) * rowGap;
     const h = dt / SUBSTEPS;
+    ball.impact = Math.max(0, (ball.impact || 0) - dt * 5);
+
+    if (ball.settling) {
+      ball.x += (targetX - ball.x) * Math.min(1, 8 * dt);
+      ball.vx *= 0.6;
+      if (Math.abs(ball.x - targetX) < 1.2) {
+        ball.x = targetX;
+        settleBall(ball);
+      }
+      return;
+    }
+
+    if (ball.y > (ball.lowestY ?? ball.y) + 0.5) {
+      ball.lowestY = ball.y;
+      ball.stillTime = 0;
+      ball.wedged = false;
+    } else {
+      ball.stillTime = (ball.stillTime || 0) + dt;
+    }
+    if (ball.stillTime > STILL_LIMIT) ball.wedged = true;
+    if (ball.wedged && ball.y > lastRowY) ball.wedged = false;
+
+    const contactR = ball.wedged ? BALL_RADIUS * 0.4 : pegRadius + BALL_RADIUS;
 
     for (let s = 0; s < SUBSTEPS; s += 1) {
       ball.vy += gravity * h;
 
       // Мягкий долгосрочный довод к целевому слоту.
-      const progress = Math.min(1, ball.elapsed / 3.5);
-      const steer = STEER + (STEER_END - STEER) * progress;
+      const progress = Math.min(1, ball.elapsed / 2.8);
+      const steer = ball.wedged ? STEER_RESCUE
+        : ball.y > lastRowY ? STEER_BELOW_PEGS
+          : STEER + (STEER_END - STEER) * progress;
       ball.vx += (targetX - ball.x) * steer * h;
 
       // Сопротивление воздуха.
@@ -728,7 +759,11 @@ function initPlinko() {
       for (const peg of pegs) resolvePeg(ball, peg, contactR);
     }
 
-    if (ball.y >= bottomY) { ball.y = bottomY; settleBall(ball); }
+    if (ball.y >= bottomY) {
+      ball.y = bottomY;
+      ball.vy = 0;
+      ball.settling = true;
+    }
   }
 
   function dropBall(bucket, multiplier, payout) {
@@ -753,7 +788,12 @@ function initPlinko() {
       settled: false,
       bucket: bucketIndex,
       multiplier,
-      payout: Number(payout)
+      payout: Number(payout),
+      lowestY: TOP_Y - 16,
+      stillTime: 0,
+      wedged: false,
+      settling: false,
+      impact: 0
     };
     balls.push(ball);
     return ball;
@@ -764,9 +804,13 @@ function initPlinko() {
   // ============================================================
 
   function animate(time) {
-    const dt = Math.min(0.033, (time - lastTime) / 1000 || 0.016);
+    const dt = Math.min(0.05, (time - lastTime) / 1000 || 0.016);
     lastTime = time;
-    for (const ball of balls) { if (!ball.settled) updateBall(ball, dt); }
+    physicsAccumulator = Math.min(physicsAccumulator + dt, 0.12);
+    while (physicsAccumulator >= PHYSICS_STEP) {
+      for (const ball of balls) { if (!ball.settled) updateBall(ball, PHYSICS_STEP); }
+      physicsAccumulator -= PHYSICS_STEP;
+    }
     renderFrame();
     const moving = balls.filter(b => !b.settled);
     if (moving.length || !requestsDone) {
@@ -818,6 +862,7 @@ function initPlinko() {
     balls = [];
     if (animationId) cancelAnimationFrame(animationId);
     animationId = null;
+    physicsAccumulator = 0;
     renderFrame();
     const ballsToDrop = currentBalls;
     try {
