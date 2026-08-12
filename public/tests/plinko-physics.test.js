@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   createPlinkoBall,
   plinkoMetrics,
+  plinkoPegs,
   simulatePlinkoDrop,
   stepPlinkoBall
 } from '../plinko-physics.js';
@@ -12,8 +13,11 @@ const BOARDS = [[300, 360], [200, 280], [400, 420], [524, 450]];
 
 function testDrop(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
+  const pegs = plinkoPegs(width, height);
+  const contactRadius = metrics.pegRadius + metrics.ballRadius;
   const serverDrop = simulatePlinkoDrop(width, height, seed);
   const ball = createPlinkoBall(width, height, seed);
+  assert.ok(Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED) < 1e-6, `некорректный стартовый импульс: seed=${seed}`);
   let steps = 0;
   let maxDisplacement = 0;
   let maxSpeedError = 0;
@@ -24,7 +28,14 @@ function testDrop(width, height, seed) {
     stepPlinkoBall(ball, width, height, 1 / 120);
     const displacement = Math.hypot(ball.x - beforeX, ball.y - beforeY);
     maxDisplacement = Math.max(maxDisplacement, displacement);
-    if (!ball.settled) maxSpeedError = Math.max(maxSpeedError, Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED));
+    if (!ball.settled) {
+      maxSpeedError = Math.max(maxSpeedError, Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED));
+      assert.ok(ball.vy >= -1e-6, `шарик отскочил вверх: seed=${seed}`);
+      for (const peg of pegs) {
+        const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
+        assert.ok(distance >= contactRadius - 1e-4, `шарик прошёл сквозь штырёк: seed=${seed}`);
+      }
+    }
     steps += 1;
   }
 

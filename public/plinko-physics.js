@@ -5,10 +5,9 @@ const TOP_Y = 22;
 const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
 const FALL_SPEED = 120;
-const MIN_DOWNWARD_SPEED = 60;
-const MAX_HORIZONTAL_SPEED = 78;
-const RESTITUTION = 0.32;
-const TANGENT_KEEP = 0.72;
+const MAX_HORIZONTAL_SPEED = FALL_SPEED;
+const INITIAL_HORIZONTAL_IMPULSE = 72;
+const FALL_TURN_RATE = 90;
 const SUBSTEPS = 4;
 const CONTACT_CLEARANCE = 1.25;
 const MAX_STEPS = 2400;
@@ -66,12 +65,14 @@ export function createPlinkoBall(width, height, seed) {
   const spawnX = firstPegLeft + metrics.ballRadius
     + rng() * Math.max(1, firstPegRight - firstPegLeft - metrics.ballRadius * 2);
   const spawnOffset = (spawnX - metrics.boardWidth / 2) / Math.max(1, metrics.colGap);
+  const initialVx = spawnOffset * 12 + (rng() - 0.5) * INITIAL_HORIZONTAL_IMPULSE * 2;
+  const horizontalSpeed = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, initialVx));
 
   return {
     x: spawnX,
     y: TOP_Y - 16,
-    vx: spawnOffset * 12 + (rng() - 0.5) * 150,
-    vy: 0,
+    vx: horizontalSpeed,
+    vy: Math.sqrt(FALL_SPEED * FALL_SPEED - horizontalSpeed * horizontalSpeed),
     spawnX,
     spawnY: TOP_Y - 16,
     radius: metrics.ballRadius,
@@ -88,23 +89,22 @@ function resolvePeg(ball, peg, contactRadius) {
   const dx = ball.x - peg.x;
   const dy = ball.y - peg.y;
   const distance = Math.hypot(dx, dy);
-  if (distance >= contactRadius || distance < 1e-6) return;
+  if (distance > contactRadius + 1e-6) return;
 
-  const nx = dx / distance;
-  const ny = dy / distance;
+  const fallbackSide = Math.sign(ball.vx) || 1;
+  const nx = distance < 1e-6 ? -fallbackSide * 0.35 : dx / distance;
+  const ny = distance < 1e-6 ? -Math.sqrt(1 - nx * nx) : dy / distance;
   ball.x = peg.x + nx * contactRadius;
   ball.y = peg.y + ny * contactRadius;
 
-  const normalVelocity = ball.vx * nx + ball.vy * ny;
-  if (normalVelocity >= 0) return;
-
+  // После удара шарик огибает штырёк по касательной, не отскакивая вверх.
   const tx = -ny;
   const ty = nx;
-  const tangentVelocity = ball.vx * tx + ball.vy * ty;
-  ball.vx = tx * tangentVelocity * TANGENT_KEEP - nx * Math.abs(normalVelocity) * RESTITUTION;
-  ball.vy = ty * tangentVelocity * TANGENT_KEEP - ny * Math.abs(normalVelocity) * RESTITUTION;
+  const tangentSign = ty >= 0 ? 1 : -1;
+  ball.vx = tx * tangentSign * FALL_SPEED;
+  ball.vy = ty * tangentSign * FALL_SPEED;
   ball.bounces += 1;
-  ball.impact = Math.min(1, Math.abs(normalVelocity) / 360);
+  ball.impact = 1;
   ball.lastPeg = peg;
 }
 
@@ -112,19 +112,34 @@ function isSamePeg(first, second) {
   return first && second && first.x === second.x && first.y === second.y;
 }
 
-function keepFallSpeed(ball) {
-  const vx = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, Number(ball.vx) || 0));
-  const vy = Math.max(MIN_DOWNWARD_SPEED, Number(ball.vy) || 0);
-  const horizontalPart = Math.min(MAX_HORIZONTAL_SPEED, Math.abs(vx));
-  const downwardPart = Math.sqrt(Math.max(0, FALL_SPEED * FALL_SPEED - horizontalPart * horizontalPart));
-  ball.vx = Math.sign(vx) * horizontalPart;
-  ball.vy = Math.max(MIN_DOWNWARD_SPEED, downwardPart, Math.min(FALL_SPEED, vy));
-
-  const speed = Math.hypot(ball.vx, ball.vy);
-  if (speed > FALL_SPEED) {
-    ball.vx *= FALL_SPEED / speed;
-    ball.vy *= FALL_SPEED / speed;
+function keepFallSpeed(ball, dt = 0, allowFallTurn = true) {
+  let vx = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, Number(ball.vx) || 0));
+  if (allowFallTurn && dt > 0) {
+    const turn = Math.min(Math.abs(vx), FALL_TURN_RATE * dt);
+    vx -= Math.sign(vx) * turn;
   }
+  ball.vx = vx;
+  ball.vy = Math.sqrt(Math.max(0, FALL_SPEED * FALL_SPEED - vx * vx));
+}
+
+function findFirstPegHit(startX, startY, moveX, moveY, pegs, contactRadius, lastPeg) {
+  const movementLengthSquared = moveX * moveX + moveY * moveY;
+  if (movementLengthSquared < 1e-9) return null;
+
+  let firstHit = null;
+  for (const peg of pegs) {
+    if (isSamePeg(peg, lastPeg)) continue;
+    const offsetX = startX - peg.x;
+    const offsetY = startY - peg.y;
+    const c = offsetX * offsetX + offsetY * offsetY - contactRadius * contactRadius;
+    const b = 2 * (offsetX * moveX + offsetY * moveY);
+    const discriminant = b * b - 4 * movementLengthSquared * c;
+    if (discriminant < 0) continue;
+    const hitTime = c <= 0 ? 0 : (-b - Math.sqrt(discriminant)) / (2 * movementLengthSquared);
+    if (hitTime < 0 || hitTime > 1 || (firstHit && hitTime >= firstHit.time)) continue;
+    firstHit = { peg, time: hitTime };
+  }
+  return firstHit;
 }
 
 export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
@@ -137,37 +152,43 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
   ball.impact = Math.max(0, (ball.impact || 0) - Math.max(0, Number(dt) || 0) * 5);
 
   for (let substep = 0; substep < SUBSTEPS; substep += 1) {
-    keepFallSpeed(ball);
-
     if (ball.lastPeg) {
       const distanceFromLastPeg = Math.hypot(ball.x - ball.lastPeg.x, ball.y - ball.lastPeg.y);
       if (distanceFromLastPeg >= contactRadius * CONTACT_CLEARANCE) ball.lastPeg = null;
     }
+    keepFallSpeed(ball, h, !ball.lastPeg);
 
-    ball.x += ball.vx * h;
-    ball.y += ball.vy * h;
+    let remaining = 1;
+    for (let contact = 0; contact < 3 && remaining > 1e-6; contact += 1) {
+      const hit = findFirstPegHit(
+        ball.x,
+        ball.y,
+        ball.vx * h * remaining,
+        ball.vy * h * remaining,
+        pegs,
+        contactRadius,
+        ball.lastPeg
+      );
+      if (!hit) {
+        ball.x += ball.vx * h * remaining;
+        ball.y += ball.vy * h * remaining;
+        break;
+      }
+      ball.x += ball.vx * h * remaining * hit.time;
+      ball.y += ball.vy * h * remaining * hit.time;
+      resolvePeg(ball, hit.peg, contactRadius);
+      remaining *= 1 - hit.time;
+    }
 
     if (ball.x < ball.radius) {
       ball.x = ball.radius;
-      ball.vx = Math.abs(ball.vx) * RESTITUTION;
+      ball.vx = Math.abs(ball.vx);
     } else if (ball.x > metrics.boardWidth - ball.radius) {
       ball.x = metrics.boardWidth - ball.radius;
-      ball.vx = -Math.abs(ball.vx) * RESTITUTION;
+      ball.vx = -Math.abs(ball.vx);
     }
 
-    // Несколько проходов нужны, когда шарик касается двух соседних штырьков
-    // одновременно: так коррекция контакта не возвращает его в предыдущий.
-    let nearestPeg = null;
-    let nearestDistance = contactRadius;
-    for (const peg of pegs) {
-      if (isSamePeg(peg, ball.lastPeg)) continue;
-      const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestPeg = peg;
-      }
-    }
-    if (nearestPeg) resolvePeg(ball, nearestPeg, contactRadius);
+    // Скорость сохраняется после любой корректировки положения и у границ поля.
     keepFallSpeed(ball);
   }
 
