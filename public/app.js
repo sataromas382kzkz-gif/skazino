@@ -1,4 +1,4 @@
-const tg = window.Telegram?.WebApp;
+﻿const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
 const headers = {'Content-Type':'application/json','x-telegram-init-data':tg?.initData || ''};
 const $ = id => document.getElementById(id);
@@ -17,10 +17,10 @@ function updateDailyStatus() {
   const remaining = profile?.lastDailyAt ? DAILY_COOLDOWN - (Date.now() - profile.lastDailyAt) : 0;
   const available = remaining <= 0;
   $('daily').disabled = !available;
-  $('daily').textContent = available ? 'Забрать' : 'Получено';
+  $('daily').textContent = available ? 'Р—Р°Р±СЂР°С‚СЊ' : 'РџРѕР»СѓС‡РµРЅРѕ';
   $('dailyStatus').textContent = available
-    ? 'Заходи каждый день и забирай награду.'
-    : `Следующая награда через ${formatRemainingTime(remaining)}`;
+    ? 'Р—Р°С…РѕРґРё РєР°Р¶РґС‹Р№ РґРµРЅСЊ Рё Р·Р°Р±РёСЂР°Р№ РЅР°РіСЂР°РґСѓ.'
+    : `РЎР»РµРґСѓСЋС‰Р°СЏ РЅР°РіСЂР°РґР° С‡РµСЂРµР· ${formatRemainingTime(remaining)}`;
 }
 function startDailyTimer() {
   clearInterval(dailyTimer);
@@ -36,20 +36,20 @@ async function request(url, options={}) {
   const response = await fetch(url, { ...options, headers: { ...headers, ...options.headers } });
   const contentType = response.headers.get('content-type') || '';
   const data = contentType.includes('application/json') ? await response.json() : null;
-  if (!response.ok) throw Error(data?.error || `Ошибка сервера (${response.status})`);
+  if (!response.ok) throw Error(data?.error || `РћС€РёР±РєР° СЃРµСЂРІРµСЂР° (${response.status})`);
   return data;
 }
 function render(user, data) {
   profile=data;
-  const name=user.first_name||'друг';
-  $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'✦').toUpperCase();
+  const name=user.first_name||'РґСЂСѓРі';
+  $('name').textContent=name; $('heroName').textContent=name; $('avatar').textContent=(name[0]||'вњ¦').toUpperCase();
   $('stars').textContent=data.caseStars ?? data.stars ?? 0; $('statStars').textContent=data.caseStars ?? data.stars ?? 0;
   if ($('profileCaseStars')) $('profileCaseStars').textContent=data.caseStars ?? data.stars ?? 0;
   const rocketStars = data.caseStars ?? data.stars ?? 0;
   if ($('rocketStars')) $('rocketStars').textContent=rocketStars;
   if ($('plinkoStars')) $('plinkoStars').textContent = rocketStars;
   if ($('profilePrizeStars')) $('profilePrizeStars').textContent=data.prizeStars ?? 0;
-  if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : '—';
+  if ($('profileRegistered')) $('profileRegistered').textContent=data.registeredAt ? new Date(data.registeredAt).toLocaleDateString('ru-RU') : 'вЂ”';
   startDailyTimer();
 }
 $('daily').onclick=async event=>{
@@ -71,23 +71,23 @@ $('profileModal').addEventListener('click', event=>{ if (event.target === $('pro
 $('giftsModal').addEventListener('click', event=>{ if (event.target === $('giftsModal')) $('giftsModal').classList.remove('visible'); });
 $('closeGifts').onclick=()=> $('giftsModal').classList.remove('visible');
 function renderGifts() {
-  // У старых профилей giftItems формируется сервером из уже накопленных gifts.
+  // РЈ СЃС‚Р°СЂС‹С… РїСЂРѕС„РёР»РµР№ giftItems С„РѕСЂРјРёСЂСѓРµС‚СЃСЏ СЃРµСЂРІРµСЂРѕРј РёР· СѓР¶Рµ РЅР°РєРѕРїР»РµРЅРЅС‹С… gifts.
   const gifts = profile?.giftItems || [];
   $('giftsList').innerHTML = gifts.length ? gifts.slice().reverse().map(gift => {
-    const fallbackNames = { bear: 'Мишка Telegram', heart: 'Сердце Telegram', rose: 'Роза Telegram', cake: 'Торт Telegram', bouquet: 'Букет Telegram', rocket: 'Ракета Telegram', ring: 'Кольцо Telegram', cup: 'Кубок Telegram', diamond: 'Алмаз Telegram', 'nft-icecream': 'NFT-мороженое', 'nft-snake': 'NFT-змея', 'nft-doshirak': 'NFT-доширак', 'nft-lollipop': 'NFT-леденец' };
-    const name = rewardName(gift) === 'Приз' ? (fallbackNames[gift.type] || 'Подарок Telegram') : rewardName(gift);
-    return `<article class="gift-card"><span class="gift-icon">${rewardEmoji(gift)}</span><div><b>${escapeHtml(name)}</b><small>Выбито из кейса</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Вывести</a></article>`;
-  }).join('') : '<p class="empty-gifts">Пока нет подарков. Откройте кейс — и они появятся здесь.</p>';
+    const fallbackNames = { bear: 'РњРёС€РєР° Telegram', heart: 'РЎРµСЂРґС†Рµ Telegram', rose: 'Р РѕР·Р° Telegram', cake: 'РўРѕСЂС‚ Telegram', bouquet: 'Р‘СѓРєРµС‚ Telegram', rocket: 'Р Р°РєРµС‚Р° Telegram', ring: 'РљРѕР»СЊС†Рѕ Telegram', cup: 'РљСѓР±РѕРє Telegram', diamond: 'РђР»РјР°Р· Telegram', 'nft-icecream': 'NFT-РјРѕСЂРѕР¶РµРЅРѕРµ', 'nft-snake': 'NFT-Р·РјРµСЏ', 'nft-doshirak': 'NFT-РґРѕС€РёСЂР°Рє', 'nft-lollipop': 'NFT-Р»РµРґРµРЅРµС†' };
+    const name = rewardName(gift) === 'РџСЂРёР·' ? (fallbackNames[gift.type] || 'РџРѕРґР°СЂРѕРє Telegram') : rewardName(gift);
+    return `<article class="gift-card"><span class="gift-icon">${rewardEmoji(gift)}</span><div><b>${escapeHtml(name)}</b><small>Р’С‹Р±РёС‚Рѕ РёР· РєРµР№СЃР°</small></div><a class="withdraw-button" href="https://t.me/murarru" target="_blank" rel="noopener">Р’С‹РІРµСЃС‚Рё</a></article>`;
+  }).join('') : '<p class="empty-gifts">РџРѕРєР° РЅРµС‚ РїРѕРґР°СЂРєРѕРІ. РћС‚РєСЂРѕР№С‚Рµ РєРµР№СЃ вЂ” Рё РѕРЅРё РїРѕСЏРІСЏС‚СЃСЏ Р·РґРµСЃСЊ.</p>';
 }
 $('giftsButton').onclick=()=>{ renderGifts(); $('giftsModal').classList.add('visible'); };
 $('withdrawStarsButton').onclick=()=>{
-  if ((profile?.prizeStars ?? 0) < 50) return toast('Вывод звёзд доступен при балансе от 50 звёзд');
+  if ((profile?.prizeStars ?? 0) < 50) return toast('Р’С‹РІРѕРґ Р·РІС‘Р·Рґ РґРѕСЃС‚СѓРїРµРЅ РїСЂРё Р±Р°Р»Р°РЅСЃРµ РѕС‚ 50 Р·РІС‘Р·Рґ');
   window.open('https://t.me/murarru', '_blank', 'noopener');
 };
 $('promoButton').onclick=async()=>{ try { const data=await request('/api/profile/promo',{method:'POST',body:JSON.stringify({code:$('promoCode').value})}); render({first_name:profile.name},data.profile); toast(data.message); } catch(e){toast(e.message)} };
-// Ссылка фиксированная и открывается напрямую; кнопки сохранения нет.
+// РЎСЃС‹Р»РєР° С„РёРєСЃРёСЂРѕРІР°РЅРЅР°СЏ Рё РѕС‚РєСЂС‹РІР°РµС‚СЃСЏ РЅР°РїСЂСЏРјСѓСЋ; РєРЅРѕРїРєРё СЃРѕС…СЂР°РЅРµРЅРёСЏ РЅРµС‚.
 $('topupLink').onclick=()=>$('topupLink').select();
-// Переключение вкладок Мини-игр: активная панель соответствует выбранной игре.
+// РџРµСЂРµРєР»СЋС‡РµРЅРёРµ РІРєР»Р°РґРѕРє РњРёРЅРё-РёРіСЂ: Р°РєС‚РёРІРЅР°СЏ РїР°РЅРµР»СЊ СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓРµС‚ РІС‹Р±СЂР°РЅРЅРѕР№ РёРіСЂРµ.
 function switchMiniGame(game) {
   document.querySelectorAll('.mini-game-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.game === game));
   document.querySelectorAll('.mini-game-panel').forEach(panel => panel.classList.toggle('active', panel.id === `${game}Game`));
@@ -102,8 +102,8 @@ let rocketStatusTimer = 0;
 let rocketStatusPending = false;
 let rocketLastMultiplierText = '';
 let rocketFlightSoundTimer = 0;
-// Номер локального раунда отсекает запоздалые ответы status/start от уже
-// завершённой игры: они не смогут вернуть анимацию после взрыва.
+// РќРѕРјРµСЂ Р»РѕРєР°Р»СЊРЅРѕРіРѕ СЂР°СѓРЅРґР° РѕС‚СЃРµРєР°РµС‚ Р·Р°РїРѕР·РґР°Р»С‹Рµ РѕС‚РІРµС‚С‹ status/start РѕС‚ СѓР¶Рµ
+// Р·Р°РІРµСЂС€С‘РЅРЅРѕР№ РёРіСЂС‹: РѕРЅРё РЅРµ СЃРјРѕРіСѓС‚ РІРµСЂРЅСѓС‚СЊ Р°РЅРёРјР°С†РёСЋ РїРѕСЃР»Рµ РІР·СЂС‹РІР°.
 let rocketRunId = 0;
 
 function readServerTime(value) {
@@ -111,14 +111,14 @@ function readServerTime(value) {
   return Number.isFinite(timestamp) ? timestamp : Date.now();
 }
 function rocketMultiplierForElapsed(seconds) {
-  // Та же формула, что и на сервере: клиент показывает только анимацию,
-  // окончательный результат всё равно проверяет API.
+  // РўР° Р¶Рµ С„РѕСЂРјСѓР»Р°, С‡С‚Рѕ Рё РЅР° СЃРµСЂРІРµСЂРµ: РєР»РёРµРЅС‚ РїРѕРєР°Р·С‹РІР°РµС‚ С‚РѕР»СЊРєРѕ Р°РЅРёРјР°С†РёСЋ,
+  // РѕРєРѕРЅС‡Р°С‚РµР»СЊРЅС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ РІСЃС‘ СЂР°РІРЅРѕ РїСЂРѕРІРµСЂСЏРµС‚ API.
   return Math.min(20, 1 + .18 * seconds + .04 * seconds ** 2);
 }
 function syncRocketClock(round) {
-  // Точка отсчёта переносится на monotonic performance.now(), который не
-  // меняется при ручной смене часов на телефоне. Серверное `now` остаётся
-  // источником истины для расчёта следующего кадра.
+  // РўРѕС‡РєР° РѕС‚СЃС‡С‘С‚Р° РїРµСЂРµРЅРѕСЃРёС‚СЃСЏ РЅР° monotonic performance.now(), РєРѕС‚РѕСЂС‹Р№ РЅРµ
+  // РјРµРЅСЏРµС‚СЃСЏ РїСЂРё СЂСѓС‡РЅРѕР№ СЃРјРµРЅРµ С‡Р°СЃРѕРІ РЅР° С‚РµР»РµС„РѕРЅРµ. РЎРµСЂРІРµСЂРЅРѕРµ `now` РѕСЃС‚Р°С‘С‚СЃСЏ
+  // РёСЃС‚РѕС‡РЅРёРєРѕРј РёСЃС‚РёРЅС‹ РґР»СЏ СЂР°СЃС‡С‘С‚Р° СЃР»РµРґСѓСЋС‰РµРіРѕ РєР°РґСЂР°.
   rocketStartedAt = readServerTime(round.startedAt);
   rocketServerNow = readServerTime(round.now);
   rocketClockAtSync = performance.now();
@@ -132,7 +132,7 @@ function rocketMultiplier() {
 }
 function updateRocketButton() {
   const bet = Math.max(20, Number($('rocketBet').value) || 20);
-  $('rocketButton').textContent = rocketActive ? 'Забрать выигрыш' : `Запустить за ${bet} ⭐`;
+  $('rocketButton').textContent = rocketActive ? 'Р—Р°Р±СЂР°С‚СЊ РІС‹РёРіСЂС‹С€' : `Р—Р°РїСѓСЃС‚РёС‚СЊ Р·Р° ${bet} в­ђ`;
 }
 function stopRocketAnimation() {
   cancelAnimationFrame(rocketFrame);
@@ -143,7 +143,7 @@ function stopRocketAnimation() {
   rocketFlightSoundTimer = null;
 }
 function finishRocketCrash(message) {
-  // Инвалидируем все незавершённые сетевые ответы и полностью очищаем полёт.
+  // РРЅРІР°Р»РёРґРёСЂСѓРµРј РІСЃРµ РЅРµР·Р°РІРµСЂС€С‘РЅРЅС‹Рµ СЃРµС‚РµРІС‹Рµ РѕС‚РІРµС‚С‹ Рё РїРѕР»РЅРѕСЃС‚СЊСЋ РѕС‡РёС‰Р°РµРј РїРѕР»С‘С‚.
   rocketRunId += 1;
   rocketActive = false;
   rocketStatusPending = false;
@@ -153,7 +153,7 @@ function finishRocketCrash(message) {
   $('rocketStar').style.removeProperty('--flight-delay');
   $('rocketSky').classList.add('crashed');
   $('rocketStatus').textContent = message;
-  $('rocketMultiplier').textContent = '💥';
+  $('rocketMultiplier').textContent = 'рџ’Ґ';
   $('rocketMultiplier').classList.remove('multiplier-tick');
   setTimeout(() => $('rocketSky').classList.remove('crashed'), 900);
   playTone(90, .35, .14);
@@ -167,7 +167,7 @@ function renderRocketFrame() {
   if (multiplierText !== rocketLastMultiplierText) {
     rocketLastMultiplierText = multiplierText;
     multiplierElement.textContent = multiplierText;
-    // Импульс запускается только при смене сотой, не на каждом кадре.
+    // РРјРїСѓР»СЊСЃ Р·Р°РїСѓСЃРєР°РµС‚СЃСЏ С‚РѕР»СЊРєРѕ РїСЂРё СЃРјРµРЅРµ СЃРѕС‚РѕР№, РЅРµ РЅР° РєР°Р¶РґРѕРј РєР°РґСЂРµ.
     multiplierElement.classList.remove('multiplier-tick');
     void multiplierElement.offsetWidth;
     multiplierElement.classList.add('multiplier-tick');
@@ -181,17 +181,17 @@ async function checkRocketStatus() {
   try {
     const status = await request('/api/rocket/status');
     if (!rocketActive || runId !== rocketRunId) return;
-    if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${Number(status.multiplier).toFixed(2)}x`);
-    // Сервер — источник истины, а requestAnimationFrame отрисовывает все
-    // промежуточные сотые между синхронизациями без рывков.
+    if (status.crashed) return finishRocketCrash(`Р Р°РєРµС‚Р° РІР·РѕСЂРІР°Р»Р°СЃСЊ РЅР° ${Number(status.multiplier).toFixed(2)}x`);
+    // РЎРµСЂРІРµСЂ вЂ” РёСЃС‚РѕС‡РЅРёРє РёСЃС‚РёРЅС‹, Р° requestAnimationFrame РѕС‚СЂРёСЃРѕРІС‹РІР°РµС‚ РІСЃРµ
+    // РїСЂРѕРјРµР¶СѓС‚РѕС‡РЅС‹Рµ СЃРѕС‚С‹Рµ РјРµР¶РґСѓ СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏРјРё Р±РµР· СЂС‹РІРєРѕРІ.
     syncRocketClock(status);
   } catch (error) {
-    // После взрыва сервер удаляет раунд. Если ответ о взрыве не дошёл,
-    // «Нет активной ракеты» означает завершённый раунд, а не повод лететь дальше.
-    if (rocketActive && runId === rocketRunId && String(error.message).includes('Нет активной ракеты')) {
-      finishRocketCrash('Ракета взорвалась. Ставка сгорела.');
+    // РџРѕСЃР»Рµ РІР·СЂС‹РІР° СЃРµСЂРІРµСЂ СѓРґР°Р»СЏРµС‚ СЂР°СѓРЅРґ. Р•СЃР»Рё РѕС‚РІРµС‚ Рѕ РІР·СЂС‹РІРµ РЅРµ РґРѕС€С‘Р»,
+    // В«РќРµС‚ Р°РєС‚РёРІРЅРѕР№ СЂР°РєРµС‚С‹В» РѕР·РЅР°С‡Р°РµС‚ Р·Р°РІРµСЂС€С‘РЅРЅС‹Р№ СЂР°СѓРЅРґ, Р° РЅРµ РїРѕРІРѕРґ Р»РµС‚РµС‚СЊ РґР°Р»СЊС€Рµ.
+    if (rocketActive && runId === rocketRunId && String(error.message).includes('РќРµС‚ Р°РєС‚РёРІРЅРѕР№ СЂР°РєРµС‚С‹')) {
+      finishRocketCrash('Р Р°РєРµС‚Р° РІР·РѕСЂРІР°Р»Р°СЃСЊ. РЎС‚Р°РІРєР° СЃРіРѕСЂРµР»Р°.');
     }
-    // При кратковременном сбое сети не останавливаем уже запущенный раунд.
+    // РџСЂРё РєСЂР°С‚РєРѕРІСЂРµРјРµРЅРЅРѕРј СЃР±РѕРµ СЃРµС‚Рё РЅРµ РѕСЃС‚Р°РЅР°РІР»РёРІР°РµРј СѓР¶Рµ Р·Р°РїСѓС‰РµРЅРЅС‹Р№ СЂР°СѓРЅРґ.
   } finally {
     if (runId === rocketRunId) rocketStatusPending = false;
   }
@@ -199,9 +199,9 @@ async function checkRocketStatus() {
 function startRocketAnimation() {
   stopRocketAnimation();
   rocketLastMultiplierText = '';
-  renderRocketFrame(); // плавное обновление на каждом кадре, без дрожания таймеров
+  renderRocketFrame(); // РїР»Р°РІРЅРѕРµ РѕР±РЅРѕРІР»РµРЅРёРµ РЅР° РєР°Р¶РґРѕРј РєР°РґСЂРµ, Р±РµР· РґСЂРѕР¶Р°РЅРёСЏ С‚Р°Р№РјРµСЂРѕРІ
   checkRocketStatus();
-  // Сервер остаётся источником истины: клиент лишь рисует текущий коэффициент.
+  // РЎРµСЂРІРµСЂ РѕСЃС‚Р°С‘С‚СЃСЏ РёСЃС‚РѕС‡РЅРёРєРѕРј РёСЃС‚РёРЅС‹: РєР»РёРµРЅС‚ Р»РёС€СЊ СЂРёСЃСѓРµС‚ С‚РµРєСѓС‰РёР№ РєРѕСЌС„С„РёС†РёРµРЅС‚.
   rocketStatusTimer = setInterval(checkRocketStatus, 900);
   rocketFlightSoundTimer = setInterval(() => {
     if (rocketActive && !document.hidden) playRocketFlightSound();
@@ -217,9 +217,9 @@ $('rocketButton').onclick = async () => {
     if (!rocketActive) {
       const bet = Math.max(20, Math.floor(Number($('rocketBet').value) || 20));
       $('rocketBet').value = bet;
-      // Раунд становится активным только после подтверждения сервера. Так
-      // двойной тап или медленная сеть не создают «локальную» бесконечную ракету.
-      $('rocketStatus').textContent = 'Подготавливаем новый независимый раунд…';
+      // Р Р°СѓРЅРґ СЃС‚Р°РЅРѕРІРёС‚СЃСЏ Р°РєС‚РёРІРЅС‹Рј С‚РѕР»СЊРєРѕ РїРѕСЃР»Рµ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ СЃРµСЂРІРµСЂР°. РўР°Рє
+      // РґРІРѕР№РЅРѕР№ С‚Р°Рї РёР»Рё РјРµРґР»РµРЅРЅР°СЏ СЃРµС‚СЊ РЅРµ СЃРѕР·РґР°СЋС‚ В«Р»РѕРєР°Р»СЊРЅСѓСЋВ» Р±РµСЃРєРѕРЅРµС‡РЅСѓСЋ СЂР°РєРµС‚Сѓ.
+      $('rocketStatus').textContent = 'РџРѕРґРіРѕС‚Р°РІР»РёРІР°РµРј РЅРѕРІС‹Р№ РЅРµР·Р°РІРёСЃРёРјС‹Р№ СЂР°СѓРЅРґвЂ¦';
       const data = await request('/api/rocket/start', { method: 'POST', body: JSON.stringify({ bet }) });
       rocketRunId += 1;
       rocketActive = true;
@@ -229,17 +229,17 @@ $('rocketButton').onclick = async () => {
       syncRocketClock(data);
       $('rocketBet').disabled = true;
       playRocketLaunchSound();
-      // Перезапускаем CSS-полёт после получения ставки. Отрицательная задержка
-      // сохраняет верную позицию, если ответ сервера пришёл не мгновенно.
+      // РџРµСЂРµР·Р°РїСѓСЃРєР°РµРј CSS-РїРѕР»С‘С‚ РїРѕСЃР»Рµ РїРѕР»СѓС‡РµРЅРёСЏ СЃС‚Р°РІРєРё. РћС‚СЂРёС†Р°С‚РµР»СЊРЅР°СЏ Р·Р°РґРµСЂР¶РєР°
+      // СЃРѕС…СЂР°РЅСЏРµС‚ РІРµСЂРЅСѓСЋ РїРѕР·РёС†РёСЋ, РµСЃР»Рё РѕС‚РІРµС‚ СЃРµСЂРІРµСЂР° РїСЂРёС€С‘Р» РЅРµ РјРіРЅРѕРІРµРЅРЅРѕ.
       const star = $('rocketStar');
       star.style.removeProperty('--flight-delay');
       $('rocketSky').classList.remove('flying');
       void star.offsetWidth;
-      // Длинная траектория движется непрерывно и не возвращает звезду резко в начало.
-      // Полёт однократный: после конца траектории звезда остаётся в верхней точке.
+      // Р”Р»РёРЅРЅР°СЏ С‚СЂР°РµРєС‚РѕСЂРёСЏ РґРІРёР¶РµС‚СЃСЏ РЅРµРїСЂРµСЂС‹РІРЅРѕ Рё РЅРµ РІРѕР·РІСЂР°С‰Р°РµС‚ Р·РІРµР·РґСѓ СЂРµР·РєРѕ РІ РЅР°С‡Р°Р»Рѕ.
+      // РџРѕР»С‘С‚ РѕРґРЅРѕРєСЂР°С‚РЅС‹Р№: РїРѕСЃР»Рµ РєРѕРЅС†Р° С‚СЂР°РµРєС‚РѕСЂРёРё Р·РІРµР·РґР° РѕСЃС‚Р°С‘С‚СЃСЏ РІ РІРµСЂС…РЅРµР№ С‚РѕС‡РєРµ.
       star.style.setProperty('--flight-delay', `-${Math.min(36000, Math.max(0, currentRocketServerTime() - rocketStartedAt))}ms`);
       $('rocketSky').classList.add('flying');
-      $('rocketStatus').textContent = 'Ракета набирает высоту. Заберите выигрыш до взрыва.';
+      $('rocketStatus').textContent = 'Р Р°РєРµС‚Р° РЅР°Р±РёСЂР°РµС‚ РІС‹СЃРѕС‚Сѓ. Р—Р°Р±РµСЂРёС‚Рµ РІС‹РёРіСЂС‹С€ РґРѕ РІР·СЂС‹РІР°.';
       playTone(420, .12, .11); playTone(620, .18, .1, .1);
       startRocketAnimation();
     } else {
@@ -250,23 +250,23 @@ $('rocketButton').onclick = async () => {
       stopRocketAnimation();
       $('rocketBet').disabled = false;
       $('rocketSky').classList.remove('flying');
-      $('rocketStatus').textContent = `Вы забрали ${data.payout} ⭐ на ${data.multiplier.toFixed(2)}x!`;
+      $('rocketStatus').textContent = `Р’С‹ Р·Р°Р±СЂР°Р»Рё ${data.payout} в­ђ РЅР° ${data.multiplier.toFixed(2)}x!`;
       render({ first_name: profile.name }, data.profile);
       playWinSound();
     }
   } catch (e) {
-    // Ошибка сети не означает взрыв: раунд остаётся на сервере, и игрок может
-    // повторить вывод после восстановления соединения.
+    // РћС€РёР±РєР° СЃРµС‚Рё РЅРµ РѕР·РЅР°С‡Р°РµС‚ РІР·СЂС‹РІ: СЂР°СѓРЅРґ РѕСЃС‚Р°С‘С‚СЃСЏ РЅР° СЃРµСЂРІРµСЂРµ, Рё РёРіСЂРѕРє РјРѕР¶РµС‚
+    // РїРѕРІС‚РѕСЂРёС‚СЊ РІС‹РІРѕРґ РїРѕСЃР»Рµ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ СЃРѕРµРґРёРЅРµРЅРёСЏ.
     if (cashingOut) {
-      if (String(e.message).includes('Нет активной ракеты') || String(e.message).includes('Ракета взорвалась')) {
-        finishRocketCrash('Ракета взорвалась. Ставка сгорела.');
+      if (String(e.message).includes('РќРµС‚ Р°РєС‚РёРІРЅРѕР№ СЂР°РєРµС‚С‹') || String(e.message).includes('Р Р°РєРµС‚Р° РІР·РѕСЂРІР°Р»Р°СЃСЊ')) {
+        finishRocketCrash('Р Р°РєРµС‚Р° РІР·РѕСЂРІР°Р»Р°СЃСЊ. РЎС‚Р°РІРєР° СЃРіРѕСЂРµР»Р°.');
       } else {
         toast(e.message);
         if (rocketActive) { button.disabled = false; updateRocketButton(); }
       }
     } else {
-      // Локальный отсчёт уже был показан, поэтому при отказе сервера безусловно
-      // сбрасываем все таймеры и классы. Это исключает «вечный» полёт после ошибки.
+      // Р›РѕРєР°Р»СЊРЅС‹Р№ РѕС‚СЃС‡С‘С‚ СѓР¶Рµ Р±С‹Р» РїРѕРєР°Р·Р°РЅ, РїРѕСЌС‚РѕРјСѓ РїСЂРё РѕС‚РєР°Р·Рµ СЃРµСЂРІРµСЂР° Р±РµР·СѓСЃР»РѕРІРЅРѕ
+      // СЃР±СЂР°СЃС‹РІР°РµРј РІСЃРµ С‚Р°Р№РјРµСЂС‹ Рё РєР»Р°СЃСЃС‹. Р­С‚Рѕ РёСЃРєР»СЋС‡Р°РµС‚ В«РІРµС‡РЅС‹Р№В» РїРѕР»С‘С‚ РїРѕСЃР»Рµ РѕС€РёР±РєРё.
       rocketRunId += 1;
       rocketActive = false;
       rocketStatusPending = false;
@@ -275,38 +275,38 @@ $('rocketButton').onclick = async () => {
       $('rocketSky').classList.remove('crashed');
       $('rocketStar').style.removeProperty('--flight-delay');
       $('rocketMultiplier').textContent = '1.00x';
-      $('rocketStatus').textContent = 'Сделай ставку и забери выигрыш до взрыва.';
-      // Конфликт означает, что серверный раунд уже существует (например,
-      // ответ прошлого запроса пришёл с задержкой). Восстанавливаем именно его.
-      if (String(e.message).includes('Ракета уже запущена')) {
+      $('rocketStatus').textContent = 'РЎРґРµР»Р°Р№ СЃС‚Р°РІРєСѓ Рё Р·Р°Р±РµСЂРё РІС‹РёРіСЂС‹С€ РґРѕ РІР·СЂС‹РІР°.';
+      // РљРѕРЅС„Р»РёРєС‚ РѕР·РЅР°С‡Р°РµС‚, С‡С‚Рѕ СЃРµСЂРІРµСЂРЅС‹Р№ СЂР°СѓРЅРґ СѓР¶Рµ СЃСѓС‰РµСЃС‚РІСѓРµС‚ (РЅР°РїСЂРёРјРµСЂ,
+      // РѕС‚РІРµС‚ РїСЂРѕС€Р»РѕРіРѕ Р·Р°РїСЂРѕСЃР° РїСЂРёС€С‘Р» СЃ Р·Р°РґРµСЂР¶РєРѕР№). Р’РѕСЃСЃС‚Р°РЅР°РІР»РёРІР°РµРј РёРјРµРЅРЅРѕ РµРіРѕ.
+      if (String(e.message).includes('Р Р°РєРµС‚Р° СѓР¶Рµ Р·Р°РїСѓС‰РµРЅР°')) {
         await restoreRocketRound();
-        toast('Восстановлен уже начатый раунд');
+        toast('Р’РѕСЃСЃС‚Р°РЅРѕРІР»РµРЅ СѓР¶Рµ РЅР°С‡Р°С‚С‹Р№ СЂР°СѓРЅРґ');
       } else {
         toast(e.message);
       }
     }
   } finally {
-    // После мгновенного взрыва finishRocketCrash уже восстановил состояние UI.
+    // РџРѕСЃР»Рµ РјРіРЅРѕРІРµРЅРЅРѕРіРѕ РІР·СЂС‹РІР° finishRocketCrash СѓР¶Рµ РІРѕСЃСЃС‚Р°РЅРѕРІРёР» СЃРѕСЃС‚РѕСЏРЅРёРµ UI.
     button.disabled = false;
     updateRocketButton();
   }
 };
 updateRocketButton();
 function rewardEmoji(reward) {
-  if (reward?.type === 'bear') return '🧸';
-  if (reward?.type === 'heart') return '💝';
-  if (reward?.type === 'rose') return '🌹';
-  if (reward?.type === 'cake') return '🎂';
-  if (reward?.type === 'bouquet') return '💐';
-  if (reward?.type === 'rocket') return '🚀';
-  if (reward?.type === 'ring') return '💍';
-  if (reward?.type === 'cup') return '🏆';
-  if (reward?.type === 'diamond') return '💎';
-  if (reward?.type === 'nft-icecream') return '🍦';
-  if (reward?.type === 'nft-snake') return '🐍';
-  if (reward?.type === 'nft-doshirak') return '🍜';
-  if (reward?.type === 'nft-lollipop') return '🍭';
-  return '⭐';
+  if (reward?.type === 'bear') return 'рџ§ё';
+  if (reward?.type === 'heart') return 'рџ’ќ';
+  if (reward?.type === 'rose') return 'рџЊ№';
+  if (reward?.type === 'cake') return 'рџЋ‚';
+  if (reward?.type === 'bouquet') return 'рџ’ђ';
+  if (reward?.type === 'rocket') return 'рџљЂ';
+  if (reward?.type === 'ring') return 'рџ’Ќ';
+  if (reward?.type === 'cup') return 'рџЏ†';
+  if (reward?.type === 'diamond') return 'рџ’Ћ';
+  if (reward?.type === 'nft-icecream') return 'рџЌ¦';
+  if (reward?.type === 'nft-snake') return 'рџђЌ';
+  if (reward?.type === 'nft-doshirak') return 'рџЌњ';
+  if (reward?.type === 'nft-lollipop') return 'рџЌ­';
+  return 'в­ђ';
 }
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -314,12 +314,12 @@ function escapeHtml(value) {
   }[character]));
 }
 function rewardName(reward) {
-  // В названиях призов уже есть emoji. Убираем его, чтобы не показывать дважды.
-  return String(reward?.label || 'Приз').replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, '').trim();
+  // Р’ РЅР°Р·РІР°РЅРёСЏС… РїСЂРёР·РѕРІ СѓР¶Рµ РµСЃС‚СЊ emoji. РЈР±РёСЂР°РµРј РµРіРѕ, С‡С‚РѕР±С‹ РЅРµ РїРѕРєР°Р·С‹РІР°С‚СЊ РґРІР°Р¶РґС‹.
+  return String(reward?.label || 'РџСЂРёР·').replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, '').trim();
 }
 
-// Короткие синтезированные звуки не требуют сторонних файлов и работают
-// в Telegram WebView после пользовательского нажатия на кнопку кейса.
+// РљРѕСЂРѕС‚РєРёРµ СЃРёРЅС‚РµР·РёСЂРѕРІР°РЅРЅС‹Рµ Р·РІСѓРєРё РЅРµ С‚СЂРµР±СѓСЋС‚ СЃС‚РѕСЂРѕРЅРЅРёС… С„Р°Р№Р»РѕРІ Рё СЂР°Р±РѕС‚Р°СЋС‚
+// РІ Telegram WebView РїРѕСЃР»Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРіРѕ РЅР°Р¶Р°С‚РёСЏ РЅР° РєРЅРѕРїРєСѓ РєРµР№СЃР°.
 let audioContext;
 function playTone(frequency, duration, volume = 0.05, delay = 0) {
   try {
@@ -333,31 +333,31 @@ function playTone(frequency, duration, volume = 0.05, delay = 0) {
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     oscillator.connect(gain).connect(audioContext.destination);
     oscillator.start(start); oscillator.stop(start + duration + 0.02);
-  } catch (_) { /* Звук необязателен: приложение работает и без Web Audio. */ }
+  } catch (_) { /* Р—РІСѓРє РЅРµРѕР±СЏР·Р°С‚РµР»РµРЅ: РїСЂРёР»РѕР¶РµРЅРёРµ СЂР°Р±РѕС‚Р°РµС‚ Рё Р±РµР· Web Audio. */ }
 }
-// Громкость эффектов и фоновой мелодии увеличена примерно на 30%.
+// Р“СЂРѕРјРєРѕСЃС‚СЊ СЌС„С„РµРєС‚РѕРІ Рё С„РѕРЅРѕРІРѕР№ РјРµР»РѕРґРёРё СѓРІРµР»РёС‡РµРЅР° РїСЂРёРјРµСЂРЅРѕ РЅР° 30%.
 function playCaseOpenSound() { playTone(240, .16, .111); playTone(380, .18, .098, .13); }
 function playReelSound() { playTone(720, .055, .052); }
 function playWinSound() { playTone(520, .14, .117); playTone(660, .16, .117, .12); playTone(880, .25, .13, .25); }
 function playRocketLaunchSound() {
-  // Короткий стартовый импульс и нарастающий свист двигателя.
+  // РљРѕСЂРѕС‚РєРёР№ СЃС‚Р°СЂС‚РѕРІС‹Р№ РёРјРїСѓР»СЊСЃ Рё РЅР°СЂР°СЃС‚Р°СЋС‰РёР№ СЃРІРёСЃС‚ РґРІРёРіР°С‚РµР»СЏ.
   playTone(110, .16, .09);
   playTone(175, .24, .075, .07);
   playTone(310, .18, .055, .19);
 }
 function playRocketFlightSound() {
-  // Ненавязчивый сигнал высоты: проигрывается редко, а не в каждом кадре.
+  // РќРµРЅР°РІСЏР·С‡РёРІС‹Р№ СЃРёРіРЅР°Р» РІС‹СЃРѕС‚С‹: РїСЂРѕРёРіСЂС‹РІР°РµС‚СЃСЏ СЂРµРґРєРѕ, Р° РЅРµ РІ РєР°Р¶РґРѕРј РєР°РґСЂРµ.
   playTone(420, .09, .026);
   playTone(630, .11, .022, .08);
 }
 
-// Ненавязчивая фоновая мелодия: создаётся браузером, без загрузки аудиофайлов.
+// РќРµРЅР°РІСЏР·С‡РёРІР°СЏ С„РѕРЅРѕРІР°СЏ РјРµР»РѕРґРёСЏ: СЃРѕР·РґР°С‘С‚СЃСЏ Р±СЂР°СѓР·РµСЂРѕРј, Р±РµР· Р·Р°РіСЂСѓР·РєРё Р°СѓРґРёРѕС„Р°Р№Р»РѕРІ.
 let menuMusicTimer;
 let menuMusicStep = 0;
 function playMenuMusicNote() {
   if (document.hidden || $('caseModal').classList.contains('visible')) return;
   const notes = [262, 330, 392, 330, 294, 349, 440, 349];
-  // Фоновая мелодия заметнее, но всё ещё тише игровых эффектов.
+  // Р¤РѕРЅРѕРІР°СЏ РјРµР»РѕРґРёСЏ Р·Р°РјРµС‚РЅРµРµ, РЅРѕ РІСЃС‘ РµС‰С‘ С‚РёС€Рµ РёРіСЂРѕРІС‹С… СЌС„С„РµРєС‚РѕРІ.
   playTone(notes[menuMusicStep++ % notes.length], .34, .03);
 }
 function startMenuMusic() {
@@ -369,21 +369,21 @@ function stopMenuMusic() {
   clearInterval(menuMusicTimer);
   menuMusicTimer = null;
 }
-// Автовоспроизведение блокируется WebView, поэтому запускаем музыку после первого тапа.
+// РђРІС‚РѕРІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ Р±Р»РѕРєРёСЂСѓРµС‚СЃСЏ WebView, РїРѕСЌС‚РѕРјСѓ Р·Р°РїСѓСЃРєР°РµРј РјСѓР·С‹РєСѓ РїРѕСЃР»Рµ РїРµСЂРІРѕРіРѕ С‚Р°РїР°.
 document.addEventListener('pointerdown', startMenuMusic, { once: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopMenuMusic(); });
 function rewardMarkup(reward) {
   const label=escapeHtml(rewardName(reward));
-  // Один значок и название отображаются в общей ровной сетке.
+  // РћРґРёРЅ Р·РЅР°С‡РѕРє Рё РЅР°Р·РІР°РЅРёРµ РѕС‚РѕР±СЂР°Р¶Р°СЋС‚СЃСЏ РІ РѕР±С‰РµР№ СЂРѕРІРЅРѕР№ СЃРµС‚РєРµ.
   return `<span class="reel-placeholder" aria-hidden="true">${rewardEmoji(reward)}</span><span class="reward-name">${label}</span>`;
 }
 function showCase(item) {
   const rewards=item.rewards.map(reward => `<div class="reward-preview">${rewardMarkup(reward)}</div>`).join('');
   const card=document.createElement('article');
   card.className='case-card';
-  // «Барон» увеличен на 5%; для «Удачи» сохранена отдельная посадка модели.
-  // Новые модели (звезда/босс/мажор) приходят с прозрачными полями и слегка
-  // увеличиваются, чтобы визуально совпадать с халявой и бароном.
+  // В«Р‘Р°СЂРѕРЅВ» СѓРІРµР»РёС‡РµРЅ РЅР° 5%; РґР»СЏ В«РЈРґР°С‡РёВ» СЃРѕС…СЂР°РЅРµРЅР° РѕС‚РґРµР»СЊРЅР°СЏ РїРѕСЃР°РґРєР° РјРѕРґРµР»Рё.
+  // РќРѕРІС‹Рµ РјРѕРґРµР»Рё (Р·РІРµР·РґР°/Р±РѕСЃСЃ/РјР°Р¶РѕСЂ) РїСЂРёС…РѕРґСЏС‚ СЃ РїСЂРѕР·СЂР°С‡РЅС‹РјРё РїРѕР»СЏРјРё Рё СЃР»РµРіРєР°
+  // СѓРІРµР»РёС‡РёРІР°СЋС‚СЃСЏ, С‡С‚РѕР±С‹ РІРёР·СѓР°Р»СЊРЅРѕ СЃРѕРІРїР°РґР°С‚СЊ СЃ С…Р°Р»СЏРІРѕР№ Рё Р±Р°СЂРѕРЅРѕРј.
   const imageClass = item.id === 'lucky'
     ? ' case-art-image--lucky'
     : item.id === 'baron'
@@ -393,14 +393,14 @@ function showCase(item) {
         : '';
   const caseArt = item.image
     ? `<img class="case-art-image${imageClass}" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" loading="lazy">`
-    : '🎁';
-  card.innerHTML=`<div class="case-art">${caseArt}</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">⭐ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>Открыть кейс</button>`;
+    : 'рџЋЃ';
+  card.innerHTML=`<div class="case-art">${caseArt}</div><h3>${escapeHtml(item.name)}</h3><div class="case-price">в­ђ ${item.price}</div><div class="reward-preview-list">${rewards}</div><button>РћС‚РєСЂС‹С‚СЊ РєРµР№СЃ</button>`;
   const button=card.querySelector('button');
   button.onclick=()=>openCase(item, button);
   $('cases').append(card);
 }
 async function openCase(item, button) {
-  if (!profile || (profile.caseStars ?? profile.stars ?? 0) < item.price) return toast('Недостаточно звёзд для открытия кейса');
+  if (!profile || (profile.caseStars ?? profile.stars ?? 0) < item.price) return toast('РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ Р·РІС‘Р·Рґ РґР»СЏ РѕС‚РєСЂС‹С‚РёСЏ РєРµР№СЃР°');
   button.disabled=true;
   const modal=$('caseModal');
   const reel=$('reel');
@@ -408,22 +408,22 @@ async function openCase(item, button) {
   modal.classList.add('visible');
   stopMenuMusic();
   $('caseTitle').textContent=item.name;
-  $('rewardText').textContent='Кейс открывается...';
+  $('rewardText').textContent='РљРµР№СЃ РѕС‚РєСЂС‹РІР°РµС‚СЃСЏ...';
   $('closeModal').disabled=true;
   reel.className='reel';
-  reel.innerHTML=`<div class="reel-prize"><span>${escapeHtml(item.rewards[0]?.label || 'Приз')}</span></div>`;
+  reel.innerHTML=`<div class="reel-prize"><span>${escapeHtml(item.rewards[0]?.label || 'РџСЂРёР·')}</span></div>`;
   icon.classList.remove('case-opening');
   void icon.offsetWidth;
   icon.classList.add('case-opening');
   playCaseOpenSound();
 
   try {
-    // Получаем реальный приз до визуальной части, но показываем его только в финале.
+    // РџРѕР»СѓС‡Р°РµРј СЂРµР°Р»СЊРЅС‹Р№ РїСЂРёР· РґРѕ РІРёР·СѓР°Р»СЊРЅРѕР№ С‡Р°СЃС‚Рё, РЅРѕ РїРѕРєР°Р·С‹РІР°РµРј РµРіРѕ С‚РѕР»СЊРєРѕ РІ С„РёРЅР°Р»Рµ.
     const data=await request(`/api/cases/${item.id}/open`,{method:'POST'});
-    if (!data.reward || !data.profile) throw Error('Сервер не вернул приз');
+    if (!data.reward || !data.profile) throw Error('РЎРµСЂРІРµСЂ РЅРµ РІРµСЂРЅСѓР» РїСЂРёР·');
 
-    // Надёжная анимация без transform и Web Animations API: быстро меняем карточки.
-    // Она работает даже в старых Telegram WebView и не зависит от размеров экрана.
+    // РќР°РґС‘Р¶РЅР°СЏ Р°РЅРёРјР°С†РёСЏ Р±РµР· transform Рё Web Animations API: Р±С‹СЃС‚СЂРѕ РјРµРЅСЏРµРј РєР°СЂС‚РѕС‡РєРё.
+    // РћРЅР° СЂР°Р±РѕС‚Р°РµС‚ РґР°Р¶Рµ РІ СЃС‚Р°СЂС‹С… Telegram WebView Рё РЅРµ Р·Р°РІРёСЃРёС‚ РѕС‚ СЂР°Р·РјРµСЂРѕРІ СЌРєСЂР°РЅР°.
     const prize=reel.querySelector('.reel-prize');
     let ticks=0;
     let timer;
@@ -445,7 +445,7 @@ async function openCase(item, button) {
     prize.classList.add('prize-final');
     reel.classList.add('win');
     playWinSound();
-    $('rewardText').textContent=`Вы получили: ${data.reward.label}`;
+    $('rewardText').textContent=`Р’С‹ РїРѕР»СѓС‡РёР»Рё: ${data.reward.label}`;
     render({first_name:profile.name},data.profile);
   } catch(e) {
     $('rewardText').textContent=e.message;
@@ -459,7 +459,7 @@ $('closeModal').onclick=()=> { $('caseModal').classList.remove('visible'); start
 async function restoreRocketRound() {
   try {
     const status = await request('/api/rocket/status');
-    if (status.crashed) return finishRocketCrash(`Ракета взорвалась на ${status.multiplier.toFixed(2)}x`);
+    if (status.crashed) return finishRocketCrash(`Р Р°РєРµС‚Р° РІР·РѕСЂРІР°Р»Р°СЃСЊ РЅР° ${status.multiplier.toFixed(2)}x`);
     rocketRunId += 1;
     rocketActive = true;
     syncRocketClock(status);
@@ -469,18 +469,18 @@ async function restoreRocketRound() {
     star.style.removeProperty('--flight-delay');
     $('rocketSky').classList.remove('flying');
     void star.offsetWidth;
-    // Восстановленный раунд продолжается в соответствующей точке дуги.
+    // Р’РѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРЅС‹Р№ СЂР°СѓРЅРґ РїСЂРѕРґРѕР»Р¶Р°РµС‚СЃСЏ РІ СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‰РµР№ С‚РѕС‡РєРµ РґСѓРіРё.
     star.style.setProperty('--flight-delay', `-${Math.min(36000, Math.max(0, currentRocketServerTime() - rocketStartedAt))}ms`);
     $('rocketSky').classList.add('flying');
-    $('rocketStatus').textContent = 'Раунд восстановлен. Заберите выигрыш до взрыва.';
+    $('rocketStatus').textContent = 'Р Р°СѓРЅРґ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅ. Р—Р°Р±РµСЂРёС‚Рµ РІС‹РёРіСЂС‹С€ РґРѕ РІР·СЂС‹РІР°.';
     updateRocketButton(); startRocketAnimation();
   } catch (error) {
-    // «Нет активной ракеты» — штатный ответ, а не проблема загрузки.
-    if (!String(error.message).includes('Нет активной ракеты')) console.warn('Не удалось восстановить ракету:', error);
+    // В«РќРµС‚ Р°РєС‚РёРІРЅРѕР№ СЂР°РєРµС‚С‹В» вЂ” С€С‚Р°С‚РЅС‹Р№ РѕС‚РІРµС‚, Р° РЅРµ РїСЂРѕР±Р»РµРјР° Р·Р°РіСЂСѓР·РєРё.
+    if (!String(error.message).includes('РќРµС‚ Р°РєС‚РёРІРЅРѕР№ СЂР°РєРµС‚С‹')) console.warn('РќРµ СѓРґР°Р»РѕСЃСЊ РІРѕСЃСЃС‚Р°РЅРѕРІРёС‚СЊ СЂР°РєРµС‚Сѓ:', error);
   }
 }
 
-// ============================ ПЛИНКО ============================
+// ============================ РџР›РРќРљРћ ============================
 function initPlinko() {
   const canvas = $('plinkoCanvas');
   const ctx = canvas.getContext('2d');
@@ -489,1203 +489,273 @@ function initPlinko() {
   const resultEl = $('plinkoResult');
 
   // ============================================================
-  // НАСТРОЙКИ ПОЛЯ
+  // РќРђРЎРўР РћР™РљР РџРћР›РЇ
   // ============================================================
 
   const ROWS = 8;
   const SLOT_COUNT = 11;
-
   const PADDING_X = 30;
   const TOP_Y = 22;
   const BOTTOM_MARGIN = 50;
-
   const BALL_RADIUS = 7;
 
-  // Главное требование:
-  // полный путь шарика занимает 3.5 секунды.
-  const FLIGHT_TIME = 3.5;
+  // РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРѕРґ ~3.5 СЃРµРє РїСЂРё resize.
+  let gravity = 72;
 
-  // Физическая симуляция.
-  const SUBSTEPS = 8;
+  // РЎС‚РѕР»РєРЅРѕРІРµРЅРёСЏ.
+  const RESTITUTION = 0.04;       // РїРѕС‡С‚Рё РЅРѕР»СЊ: Р±РµР· РїСЂСѓР¶РёРЅС‹
+  const TANGENT_KEEP = 0.88;      // СЃРѕС…СЂР°РЅСЏРµРј СЃРєРѕР»СЊР¶РµРЅРёРµ РІРґРѕР»СЊ РєРѕР»С‹С€РєР°
+  const SUBSTEPS = 6;             // РїРѕРґС€Р°РіРѕРІ/РєР°РґСЂ
 
-  // Гравитация будет рассчитана автоматически
-  // относительно высоты конкретного canvas.
-  let gravity = 180;
+  // Р”РѕРІРѕРґ Рє С†РµР»РµРІРѕРјСѓ СЃР»РѕС‚Сѓ вЂ” РїРѕС‡С‚Рё РЅРµР·Р°РјРµС‚РµРЅ.
+  const STEER = 0.38;
+  const STEER_END = 0.65;
 
-  // Сопротивление воздуха по X.
-  const AIR_DRAG_X = 0.16;
-
-  // Минимальная скорость вниз.
-  const MIN_DOWN_SPEED = 22;
-
-  // ============================================================
-  // СТОЛКНОВЕНИЯ
-  // ============================================================
-
-  // Насколько сильно peg может изменить горизонтальную скорость.
-  const PEG_SIDE_IMPULSE = 24;
-
-  // Насколько хорошо сохраняется движение вдоль поверхности peg.
-  const PEG_TANGENT_RETENTION = 0.80;
-
-  // Вертикальная энергия после удара.
-  //
-  // 1 = полностью сохраняется.
-  // 0 = полностью теряется.
-  //
-  // Нам нужен высокий показатель, чтобы шарик продолжал падать.
-  const PEG_DOWN_RETENTION = 0.97;
-
-  // Максимальная скорость по X.
-  // Это не позволяет столкновениям выбрасывать шарик слишком далеко.
-  const MAX_HORIZONTAL_SPEED = 90;
-
-  // ============================================================
-  // МЯГКОЕ НАПРАВЛЕНИЕ К СЕРВЕРНОМУ SLOT
-  // ============================================================
-  //
-  // ВАЖНО:
-  //
-  // Это НЕ телепортация.
-  // Мы НЕ задаём ball.x напрямую.
-  //
-  // Серверный bucket используется только как очень слабая
-  // долгосрочная составляющая горизонтальной скорости.
-  //
-  // Она работает постепенно на протяжении всего полёта.
-  //
-  // Поэтому шарик:
-  //
-  //   падает
-  //      ↓
-  //     ↙
-  //    ●
-  //     ↘
-  //      ↓
-  //      ●
-  //
-  // а не:
-  //
-  //   ● → → → → слот
-  //
-  const TARGET_STEERING = 0.42;
-
-  // Чем ближе шарик к концу поля,
-  // тем сильнее разрешаем небольшой контроль траектории.
-  const TARGET_STEERING_END = 0.75;
-
-  // ============================================================
-  // СОСТОЯНИЕ
-  // ============================================================
+  const SPAWN_DELAY_JITTER = 0.10;
 
   let pegRadius = 3.5;
   let rowGap = 0;
   let colGap = 0;
-
   let boardWidth = 300;
   let boardHeight = 360;
 
   let currentBalls = 1;
-
   let dropping = false;
   let requestsDone = false;
-
   let balls = [];
-
   let animationId = null;
   let lastTime = 0;
-
   let pendingProfile = null;
   let pendingTotalPayout = 0;
 
-  // ============================================================
-  // ВЫПЛАТЫ
-  // ============================================================
+  const PAYOUT_TENTHS = Object.freeze([2, 5, 10, 12, 15, 50, 15, 12, 10, 5, 2]);
+  const PAYOUT_VALUES = PAYOUT_TENTHS.map(v => v / 10);
+  const PAYOUT_LABELS = PAYOUT_VALUES.map(v => `${v}x`);
+  const PAYOUT_COLORS_BY_VALUE = { '5': '#ff4d5e', '1.5': '#ff963d', '1.2': '#ffd84d', '1': '#49e878', '0.5': '#ffffff', '0.2': '#ffffff' };
 
-  const PAYOUT_TENTHS = Object.freeze([
-    2,
-    5,
-    10,
-    12,
-    15,
-    50,
-    15,
-    12,
-    10,
-    5,
-    2
-  ]);
-
-  const PAYOUT_VALUES =
-    PAYOUT_TENTHS.map(value => value / 10);
-
-  const PAYOUT_LABELS =
-    PAYOUT_VALUES.map(value => `${value}x`);
-
-  const PAYOUT_COLORS_BY_VALUE = {
-    '5': '#ff4d5e',
-    '1.5': '#ff963d',
-    '1.2': '#ffd84d',
-    '1': '#49e878',
-    '0.5': '#ffffff',
-    '0.2': '#ffffff'
-  };
-
-  // ============================================================
-  // RESIZE
-  // ============================================================
+  // ---- resize --------------------------------------------------------
 
   function resizeCanvas() {
     const rect = canvas.getBoundingClientRect();
-
-    const dpr =
-      window.devicePixelRatio || 1;
-
-    boardWidth =
-      Math.max(
-        200,
-        rect.width || 300
-      );
-
-    boardHeight =
-      Math.max(
-        280,
-        rect.height || 360
-      );
-
-    canvas.width =
-      boardWidth * dpr;
-
-    canvas.height =
-      boardHeight * dpr;
-
-    ctx.setTransform(
-      dpr,
-      0,
-      0,
-      dpr,
-      0,
-      0
-    );
-
-    rowGap =
-      (
-        boardHeight -
-        TOP_Y -
-        BOTTOM_MARGIN
-      ) / ROWS;
-
-    colGap =
-      (
-        boardWidth -
-        PADDING_X * 2
-      ) / (ROWS + 1);
-
-    pegRadius =
-      Math.max(
-        2.5,
-        Math.min(
-          3.5,
-          colGap * 0.095
-        )
-      );
-
-    // ----------------------------------------------------------
-    // ГРАВИТАЦИЯ
-    // ----------------------------------------------------------
-    //
-    // Подбираем g так, чтобы свободное падение на высоту поля
-    // занимало около 3.5 секунд.
-    //
-    // S = 1/2 * g * t²
-    //
-    // g = 2S / t²
-    //
-
-    const flightHeight =
-      boardHeight -
-      TOP_Y -
-      BOTTOM_MARGIN;
-
-    gravity =
-      (
-        2 * flightHeight
-      ) /
-      (
-        FLIGHT_TIME *
-        FLIGHT_TIME
-      );
+    const dpr = window.devicePixelRatio || 1;
+    boardWidth = Math.max(200, rect.width || 300);
+    boardHeight = Math.max(280, rect.height || 360);
+    canvas.width = boardWidth * dpr;
+    canvas.height = boardHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
+    colGap = (boardWidth - PADDING_X * 2) / (ROWS + 1);
+    pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
+    const flightHeight = boardHeight - TOP_Y - BOTTOM_MARGIN;
+    gravity = 2 * flightHeight / (3.5 * 3.5);
   }
 
-  // ============================================================
-  // PEG POSITIONS
-  // ============================================================
+  // ---- РіРµРѕРјРµС‚СЂРёСЏ ------------------------------------------------------
 
   function pegPositions() {
     const positions = [];
-
-    for (
-      let row = 0;
-      row < ROWS;
-      row += 1
-    ) {
-      const count =
-        row + 3;
-
-      const width =
-        (count - 1) *
-        colGap;
-
-      const startX =
-        boardWidth / 2 -
-        width / 2;
-
-      for (
-        let col = 0;
-        col < count;
-        col += 1
-      ) {
-        positions.push({
-          x:
-            startX +
-            col * colGap,
-
-          y:
-            TOP_Y +
-            row * rowGap
-        });
+    for (let row = 0; row < ROWS; row += 1) {
+      const count = row + 3;
+      const width = (count - 1) * colGap;
+      const startX = boardWidth / 2 - width / 2;
+      for (let col = 0; col < count; col += 1) {
+        positions.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
       }
     }
-
     return positions;
   }
 
-  // ============================================================
-  // DRAW BOARD
-  // ============================================================
+  // ---- РѕС‚СЂРёСЃРѕРІРєР° ------------------------------------------------------
 
   function drawBoard() {
-    ctx.clearRect(
-      0,
-      0,
-      boardWidth,
-      boardHeight
-    );
-
+    ctx.clearRect(0, 0, boardWidth, boardHeight);
     ctx.save();
-
-    const sky =
-      ctx.createLinearGradient(
-        0,
-        0,
-        0,
-        boardHeight
-      );
-
-    sky.addColorStop(
-      0,
-      'rgba(10,14,32,0.98)'
-    );
-
-    sky.addColorStop(
-      0.55,
-      'rgba(16,22,46,0.96)'
-    );
-
-    sky.addColorStop(
-      1,
-      'rgba(22,30,58,0.97)'
-    );
-
+    const sky = ctx.createLinearGradient(0, 0, 0, boardHeight);
+    sky.addColorStop(0, 'rgba(10,14,32,0.98)');
+    sky.addColorStop(0.55, 'rgba(16,22,46,0.96)');
+    sky.addColorStop(1, 'rgba(22,30,58,0.97)');
     ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, boardWidth, boardHeight);
 
-    ctx.fillRect(
-      0,
-      0,
-      boardWidth,
-      boardHeight
-    );
-
-    // ==========================================================
-    // СЕТКА
-    // ==========================================================
-
-    ctx.strokeStyle =
-      'rgba(120,140,255,0.05)';
-
+    ctx.strokeStyle = 'rgba(120,140,255,0.05)';
     ctx.lineWidth = 1;
+    for (let x = PADDING_X; x < boardWidth - PADDING_X; x += 24) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, boardHeight); ctx.stroke(); }
+    for (let y = 0; y < boardHeight; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(boardWidth, y); ctx.stroke(); }
 
-    for (
-      let x = PADDING_X;
-      x < boardWidth - PADDING_X;
-      x += 24
-    ) {
-      ctx.beginPath();
-
-      ctx.moveTo(
-        x,
-        0
-      );
-
-      ctx.lineTo(
-        x,
-        boardHeight
-      );
-
-      ctx.stroke();
-    }
-
-    for (
-      let y = 0;
-      y < boardHeight;
-      y += 24
-    ) {
-      ctx.beginPath();
-
-      ctx.moveTo(
-        0,
-        y
-      );
-
-      ctx.lineTo(
-        boardWidth,
-        y
-      );
-
-      ctx.stroke();
-    }
-
-    // ==========================================================
-    // СЛОТЫ
-    // ==========================================================
-
-    const slotWidth =
-      boardWidth /
-      SLOT_COUNT;
-
-    const highlightBuckets =
-      new Set(
-        balls
-          .filter(
-            ball =>
-              ball.settled
-          )
-          .map(
-            ball =>
-              ball.bucket
-          )
-          .filter(
-            Number.isInteger
-          )
-      );
-
-    const labels =
-      PAYOUT_LABELS;
-
-    const colors =
-      PAYOUT_VALUES.map(
-        value =>
-          PAYOUT_COLORS_BY_VALUE[
-            String(value)
-          ]
-      );
-
-    for (
-      let i = 0;
-      i < SLOT_COUNT;
-      i += 1
-    ) {
-      const x =
-        slotWidth * i;
-
-      const y =
-        boardHeight -
-        BOTTOM_MARGIN +
-        4;
-
-      ctx.fillStyle =
-        'rgba(5,9,22,0.92)';
-
-      ctx.fillRect(
-        x,
-        y - 2,
-        slotWidth,
-        BOTTOM_MARGIN - 2
-      );
-
-      ctx.strokeStyle =
-        'rgba(150,170,255,0.45)';
-
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const highlightBuckets = new Set(balls.filter(b => b.settled).map(b => b.bucket).filter(Number.isInteger));
+    const colors = PAYOUT_VALUES.map(v => PAYOUT_COLORS_BY_VALUE[String(v)]);
+    for (let i = 0; i < SLOT_COUNT; i += 1) {
+      const x = slotWidth * i;
+      const y = boardHeight - BOTTOM_MARGIN + 4;
+      ctx.fillStyle = 'rgba(5,9,22,0.92)';
+      ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      ctx.strokeStyle = 'rgba(150,170,255,0.45)';
       ctx.lineWidth = 1;
-
-      ctx.strokeRect(
-        x,
-        y - 2,
-        slotWidth,
-        BOTTOM_MARGIN - 2
-      );
-
-      if (
-        highlightBuckets.has(i) &&
-        balls.some(
-          ball =>
-            ball.settled &&
-            ball.actualBucket === i &&
-            ball.multiplier > 0
-        )
-      ) {
-        ctx.fillStyle =
-          'rgba(100,255,130,0.28)';
-
-        ctx.fillRect(
-          x,
-          y - 2,
-          slotWidth,
-          BOTTOM_MARGIN - 2
-        );
-
-        ctx.fillStyle =
-          'rgba(100,255,130,0.7)';
-
-        ctx.fillRect(
-          x + 2,
-          y - 2,
-          slotWidth - 4,
-          3
-        );
+      ctx.strokeRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+      if (highlightBuckets.has(i) && balls.some(b => b.settled && b.actualBucket === i && b.multiplier > 0)) {
+        ctx.fillStyle = 'rgba(100,255,130,0.28)';
+        ctx.fillRect(x, y - 2, slotWidth, BOTTOM_MARGIN - 2);
+        ctx.fillStyle = 'rgba(100,255,130,0.7)';
+        ctx.fillRect(x + 2, y - 2, slotWidth - 4, 3);
       }
-
-      ctx.strokeStyle =
-        colors[i];
-
+      ctx.strokeStyle = colors[i];
       ctx.lineWidth = 2;
-
       ctx.beginPath();
-
-      ctx.moveTo(
-        x + 2,
-        y - 1
-      );
-
-      ctx.lineTo(
-        x +
-        slotWidth -
-        2,
-        y - 1
-      );
-
+      ctx.moveTo(x + 2, y - 1);
+      ctx.lineTo(x + slotWidth - 2, y - 1);
       ctx.stroke();
-
-      ctx.fillStyle =
-        colors[i];
-
-      const fontSize =
-        Math.max(
-          10,
-          Math.min(
-            14,
-            slotWidth * 0.40
-          )
-        );
-
-      ctx.font =
-        `900 ${fontSize}px Arial`;
-
-      ctx.textAlign =
-        'center';
-
-      ctx.textBaseline =
-        'middle';
-
-      ctx.strokeStyle =
-        'rgba(0,0,0,0.6)';
-
+      ctx.fillStyle = colors[i];
+      const fontSize = Math.max(10, Math.min(14, slotWidth * 0.40));
+      ctx.font = `900 ${fontSize}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.lineWidth = 2.5;
-
-      const labelY =
-        y +
-        (BOTTOM_MARGIN - 2) /
-          2 +
-        1;
-
-      ctx.strokeText(
-        labels[i],
-        x +
-          slotWidth / 2,
-        labelY
-      );
-
-      ctx.shadowColor =
-        colors[i];
-
+      const labelY = y + (BOTTOM_MARGIN - 2) / 2 + 1;
+      ctx.strokeText(PAYOUT_LABELS[i], x + slotWidth / 2, labelY);
+      ctx.shadowColor = colors[i];
       ctx.shadowBlur = 10;
-
-      ctx.fillText(
-        labels[i],
-        x +
-          slotWidth / 2,
-        labelY
-      );
-
+      ctx.fillText(PAYOUT_LABELS[i], x + slotWidth / 2, labelY);
       ctx.shadowBlur = 0;
     }
 
-    // ==========================================================
-    // PEG
-    // ==========================================================
-
-    const pegs =
-      pegPositions();
-
+    const pegs = pegPositions();
     ctx.save();
-
-    ctx.fillStyle =
-      'rgba(140,170,255,0.75)';
-
-    ctx.shadowColor =
-      'rgba(130,170,255,0.9)';
-
+    ctx.fillStyle = 'rgba(140,170,255,0.75)';
+    ctx.shadowColor = 'rgba(130,170,255,0.9)';
     ctx.shadowBlur = 6;
-
-    for (const peg of pegs) {
-      ctx.beginPath();
-
-      ctx.arc(
-        peg.x,
-        peg.y,
-        pegRadius,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.fill();
-    }
-
+    for (const peg of pegs) { ctx.beginPath(); ctx.arc(peg.x, peg.y, pegRadius, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
-
     ctx.restore();
   }
 
-  // ============================================================
-  // DRAW BALL
-  // ============================================================
-
   function renderFrame() {
     drawBoard();
-
     for (const ball of balls) {
       ctx.save();
-
-      const gradient =
-        ctx.createRadialGradient(
-          ball.x - 2,
-          ball.y - 2,
-          1,
-          ball.x,
-          ball.y,
-          BALL_RADIUS + 1
-        );
-
-      gradient.addColorStop(
-        0,
-        '#fff6c8'
-      );
-
-      gradient.addColorStop(
-        0.45,
-        '#ffd04a'
-      );
-
-      gradient.addColorStop(
-        1,
-        '#ff9d1f'
-      );
-
-      ctx.fillStyle =
-        gradient;
-
-      if (!ball.settled) {
-        ctx.shadowColor =
-          'rgba(255,180,60,0.9)';
-
-        ctx.shadowBlur = 12;
-      }
-
+      const grad = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 1, ball.x, ball.y, BALL_RADIUS + 1);
+      grad.addColorStop(0, '#fff6c8');
+      grad.addColorStop(0.45, '#ffd04a');
+      grad.addColorStop(1, '#ff9d1f');
+      ctx.fillStyle = grad;
+      if (!ball.settled) { ctx.shadowColor = 'rgba(255,180,60,0.9)'; ctx.shadowBlur = 12; }
       ctx.beginPath();
-
-      ctx.arc(
-        ball.x,
-        ball.y,
-        BALL_RADIUS,
-        0,
-        Math.PI * 2
-      );
-
+      ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
       ctx.fill();
-
       ctx.restore();
     }
   }
 
-  // ============================================================
-  // ЦЕЛЕВАЯ ТОЧКА
-  // ============================================================
-  //
-  // Это единственное место, где серверный bucket превращается
-  // в координату.
-  //
-  // Но мы НЕ устанавливаем ball.x = targetX.
-  //
-  // Координата используется только для вычисления очень мягкого
-  // горизонтального ускорения.
-  //
+  // =================================================================
+  // РЇР”Р Рћ Р¤РР—РРљР
+  // =================================================================
 
-  function getTargetX(ball) {
-    const slotWidth =
-      boardWidth /
-      SLOT_COUNT;
+  // РЎС‚РѕР»РєРЅРѕРІРµРЅРёРµ СЃ РѕРґРЅРёРј РєРѕР»С‹С€РєРѕРј.
+  // РЁР°СЂРёРє РЅРµ РѕС‚СЃРєР°РєРёРІР°РµС‚ вЂ” РѕРЅ СЃРєРѕР»СЊР·РёС‚ РїРѕ РєР°СЃР°С‚РµР»СЊРЅРѕР№, РјРµРЅСЏСЏ РЅР°РїСЂР°РІР»РµРЅРёРµ.
+  function resolvePeg(ball, peg, contactR) {
+    const dx = ball.x - peg.x;
+    const dy = ball.y - peg.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist >= contactR || dist < 1e-6) return false;
 
-    return (
-      slotWidth *
-      (ball.bucket + 0.5)
-    );
+    const nx = dx / dist;
+    const ny = dy / dist;
+    // Р’С‹С‚Р°Р»РєРёРІР°РЅРёРµ РёР· РєРѕР»С‹С€РєР°.
+    ball.x = peg.x + nx * contactR;
+    ball.y = peg.y + ny * contactR;
+
+    const vn = ball.vx * nx + ball.vy * ny;
+    if (vn >= 0) return true; // СѓР¶Рµ СѓРґР°Р»СЏРµС‚СЃСЏ
+
+    // РўР°РЅРіРµРЅС†РёР°Р»СЊРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ вЂ” СЃРѕС…СЂР°РЅСЏРµС‚СЃСЏ РїРѕС‡С‚Рё С†РµР»РёРєРѕРј.
+    const tx = -ny, ty = nx;
+    const vt = ball.vx * tx + ball.vy * ty;
+
+    // РќРѕСЂРјР°Р»СЊРЅР°СЏ вЂ” РїРѕС‡С‚Рё РїРѕР»РЅРѕСЃС‚СЊСЋ РіР°СЃРёС‚СЃСЏ.
+    ball.vx = tx * vt * TANGENT_KEEP - nx * Math.abs(vn) * RESTITUTION;
+    ball.vy = ty * vt * TANGENT_KEEP - ny * Math.abs(vn) * RESTITUTION;
+
+    // РЁР°СЂРёРє РІСЃРµРіРґР° РїСЂРѕРґРѕР»Р¶Р°РµС‚ РїР°РґР°С‚СЊ РІРЅРёР·.
+    if (ball.vy < 6) ball.vy = 6;
+    return true;
   }
 
-  // ============================================================
-  // МЯГКАЯ КОРРЕКЦИЯ К ЦЕЛЕВОМУ SLOT
-  // ============================================================
-  //
-  // Самое важное отличие от старого кода:
-  //
-  // НЕТ:
-  //
-  // ball.x += ...
-  //
-  // НЕТ:
-  //
-  // ball.x = targetX
-  //
-  // НЕТ:
-  //
-  // резкого vx = ...
-  //
-  // Мы только немного меняем ускорение X.
-  //
-
-  function applyTargetGuidance(
-    ball,
-    h
-  ) {
-    const targetX =
-      getTargetX(ball);
-
-    const dx =
-      targetX -
-      ball.x;
-
-    const progress =
-      Math.min(
-        1,
-        ball.elapsed /
-          FLIGHT_TIME
-      );
-
-    // В начале очень слабое направление.
-    //
-    // К концу оно немного усиливается,
-    // чтобы результат действительно попадал
-    // в нужный слот.
-    const steering =
-      TARGET_STEERING +
-      (
-        TARGET_STEERING_END -
-        TARGET_STEERING
-      ) *
-      progress;
-
-    // Чем дальше шарик от цели,
-    // тем сильнее небольшое ускорение.
-    //
-    // Но оно ограничено.
-    const acceleration =
-      Math.max(
-        -34,
-        Math.min(
-          34,
-          dx * steering
-        )
-      );
-
-    ball.vx +=
-      acceleration * h;
+  function settleBall(ball) {
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    ball.actualBucket = ball.bucket;
+    ball.x = slotWidth * (ball.bucket + 0.5);
+    ball.y = bottomY;
+    ball.multiplier = Number(ball.multiplier);
+    ball.payout = Number(ball.payout);
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.settled = true;
   }
 
-  // ============================================================
-  // СТОЛКНОВЕНИЕ С PEG
-  // ============================================================
-
-  function collideWithPeg(
-    ball,
-    peg,
-    contactRadius
-  ) {
-    const dx =
-      ball.x -
-      peg.x;
-
-    const dy =
-      ball.y -
-      peg.y;
-
-    const distSq =
-      dx * dx +
-      dy * dy;
-
-    if (
-      distSq >=
-      contactRadius *
-      contactRadius
-    ) {
-      return;
-    }
-
-    const distance =
-      Math.sqrt(
-        distSq
-      );
-
-    if (
-      distance < 0.0001
-    ) {
-      return;
-    }
-
-    // Нормаль столкновения.
-    const nx =
-      dx / distance;
-
-    const ny =
-      dy / distance;
-
-    // Проекция скорости на нормаль.
-    const normalVelocity =
-      ball.vx * nx +
-      ball.vy * ny;
-
-    // Уже удаляется от peg.
-    if (
-      normalVelocity >= 0
-    ) {
-      return;
-    }
-
-    // ==========================================================
-    // МИКРО-КОРРЕКЦИЯ
-    // ==========================================================
-    //
-    // Исправляет только физическое проникновение окружностей.
-    //
-    // Никаких больших перемещений.
-    //
-
-    const penetration =
-      contactRadius -
-      distance;
-
-    if (
-      penetration > 0
-    ) {
-      const correction =
-        Math.min(
-          penetration * 0.50,
-          1.0
-        );
-
-      ball.x +=
-        nx *
-        correction;
-
-      ball.y +=
-        ny *
-        correction;
-    }
-
-    // ==========================================================
-    // ТАНГЕНЦИАЛЬНАЯ СКОРОСТЬ
-    // ==========================================================
-
-    const tx = -ny;
-    const ty = nx;
-
-    const tangentVelocity =
-      ball.vx * tx +
-      ball.vy * ty;
-
-    const preservedTangent =
-      tangentVelocity *
-      PEG_TANGENT_RETENTION;
-
-    ball.vx =
-      tx *
-      preservedTangent;
-
-    ball.vy =
-      ty *
-      preservedTangent;
-
-    // ==========================================================
-    // БОКОВОЙ ИМПУЛЬС
-    // ==========================================================
-
-    const impact =
-      Math.min(
-        1,
-        Math.abs(
-          normalVelocity
-        ) / 110
-      );
-
-    let direction =
-      Math.sign(nx);
-
-    if (
-      direction === 0
-    ) {
-      direction =
-        ball.vx >= 0
-          ? 1
-          : -1;
-    }
-
-    const sideImpulse =
-      PEG_SIDE_IMPULSE *
-      (
-        0.35 +
-        impact * 0.65
-      );
-
-    ball.vx +=
-      direction *
-      sideImpulse;
-
-    // ==========================================================
-    // НЕ ДАЁМ ШАРИКУ ПРЫГНУТЬ ВВЕРХ
-    // ==========================================================
-
-    const downwardSpeed =
-      Math.max(
-        MIN_DOWN_SPEED,
-        ball.vy
-      );
-
-    ball.vy =
-      downwardSpeed *
-      PEG_DOWN_RETENTION;
-
-    // Ограничиваем X.
-    ball.vx =
-      Math.max(
-        -MAX_HORIZONTAL_SPEED,
-        Math.min(
-          MAX_HORIZONTAL_SPEED,
-          ball.vx
-        )
-      );
-
-    // Время последнего столкновения.
-    // Используется для небольшого визуального эффекта
-    // инерции и защиты от повторного контакта.
-    ball.lastCollisionTime =
-      ball.elapsed;
-  }
-
-  // ============================================================
-  // ФИЗИКА ШАРИКА
-  // ============================================================
-
-  function updateBall(
-    ball,
-    dt
-  ) {
-    if (
-      ball.settled
-    ) {
-      return;
-    }
-
-    if (
-      ball.spawnDelay > 0
-    ) {
-      ball.spawnDelay -= dt;
-      return;
-    }
-
-    // ==========================================================
-    // ВРЕМЯ
-    // ==========================================================
+  function updateBall(ball, dt) {
+    if (ball.settled) return;
+    if (ball.spawnDelay > 0) { ball.spawnDelay -= dt; return; }
 
     ball.elapsed += dt;
+    const targetX = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
+    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
+    const pegs = pegPositions();
+    const contactR = pegRadius + BALL_RADIUS;
+    const h = dt / SUBSTEPS;
 
-    ball.elapsed =
-      Math.min(
-        FLIGHT_TIME,
-        ball.elapsed
-      );
+    for (let s = 0; s < SUBSTEPS; s += 1) {
+      ball.vy += gravity * h;
 
-    // ==========================================================
-    // ПОДШАГ
-    // ==========================================================
+      // РњСЏРіРєРёР№ РґРѕР»РіРѕСЃСЂРѕС‡РЅС‹Р№ РґРѕРІРѕРґ Рє С†РµР»РµРІРѕРјСѓ СЃР»РѕС‚Сѓ.
+      const progress = Math.min(1, ball.elapsed / 3.5);
+      const steer = STEER + (STEER_END - STEER) * progress;
+      ball.vx += (targetX - ball.x) * steer * h;
 
-    const pegs =
-      pegPositions();
+      // РЎРѕРїСЂРѕС‚РёРІР»РµРЅРёРµ РІРѕР·РґСѓС…Р°.
+      ball.vx *= (1 - 0.3 * h);
 
-    const contactRadius =
-      pegRadius +
-      BALL_RADIUS;
+      // РџРµСЂРµРјРµС‰РµРЅРёРµ.
+      ball.x += ball.vx * h;
+      ball.y += ball.vy * h;
 
-    const h =
-      dt /
-      SUBSTEPS;
+      // РЎС‚РµРЅС‹.
+      if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.25; }
+      if (ball.x > boardWidth - BALL_RADIUS) { ball.x = boardWidth - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.25; }
 
-    for (
-      let step = 0;
-      step < SUBSTEPS;
-      step += 1
-    ) {
-      // --------------------------------------------------------
-      // ГРАВИТАЦИЯ
-      // --------------------------------------------------------
-
-      ball.vy +=
-        gravity * h;
-
-      // --------------------------------------------------------
-      // МЯГКОЕ НАПРАВЛЕНИЕ К ЦЕЛЕ
-      // --------------------------------------------------------
-      //
-      // Это НЕ перенос координат.
-      //
-      // Шарик всё время продолжает двигаться
-      // под действием собственной скорости.
-      //
-
-      applyTargetGuidance(
-        ball,
-        h
-      );
-
-      // --------------------------------------------------------
-      // СОПРОТИВЛЕНИЕ ВОЗДУХА
-      // --------------------------------------------------------
-
-      ball.vx *=
-        Math.max(
-          0,
-          1 -
-          AIR_DRAG_X * h
-        );
-
-      // --------------------------------------------------------
-      // МИНИМАЛЬНАЯ СКОРОСТЬ ВНИЗ
-      // --------------------------------------------------------
-
-      if (
-        ball.vy <
-        MIN_DOWN_SPEED
-      ) {
-        ball.vy +=
-          (
-            MIN_DOWN_SPEED -
-            ball.vy
-          ) *
-          0.18;
-      }
-
-      // --------------------------------------------------------
-      // ДВИЖЕНИЕ
-      // --------------------------------------------------------
-
-      ball.x +=
-        ball.vx * h;
-
-      ball.y +=
-        ball.vy * h;
-
-      // --------------------------------------------------------
-      // ЛЕВАЯ СТЕНА
-      // --------------------------------------------------------
-
-      if (
-        ball.x <
-        BALL_RADIUS
-      ) {
-        ball.x =
-          BALL_RADIUS;
-
-        ball.vx =
-          Math.abs(
-            ball.vx
-          ) * 0.30;
-      }
-
-      // --------------------------------------------------------
-      // ПРАВАЯ СТЕНА
-      // --------------------------------------------------------
-
-      if (
-        ball.x >
-        boardWidth -
-        BALL_RADIUS
-      ) {
-        ball.x =
-          boardWidth -
-          BALL_RADIUS;
-
-        ball.vx =
-          -Math.abs(
-            ball.vx
-          ) * 0.30;
-      }
-
-      // --------------------------------------------------------
-      // PEG
-      // --------------------------------------------------------
-
-      for (
-        const peg of pegs
-      ) {
-        collideWithPeg(
-          ball,
-          peg,
-          contactRadius
-        );
-      }
+      // РЎС‚РѕР»РєРЅРѕРІРµРЅРёСЏ СЃ РєРѕР»С‹С€РєР°РјРё.
+      for (const peg of pegs) resolvePeg(ball, peg, contactR);
     }
 
-    // ==========================================================
-    // ФИНИШ
-    // ==========================================================
-
-    const bottomY =
-      boardHeight -
-      BOTTOM_MARGIN +
-      6;
-
-    if (
-      ball.y >= bottomY
-    ) {
-      ball.y =
-        bottomY;
-
-      settleBall(ball);
-
-      return;
-    }
-
-    // ==========================================================
-    // ЗАЩИТА ОТ ЗАВИСАНИЯ
-    // ==========================================================
-
-    if (
-      ball.elapsed >=
-      FLIGHT_TIME
-    ) {
-      ball.vy =
-        Math.max(
-          ball.vy,
-          MIN_DOWN_SPEED
-        );
-    }
+    if (ball.y >= bottomY) { ball.y = bottomY; settleBall(ball); }
   }
 
-  // ============================================================
-  // СОЗДАНИЕ ШАРИКА
-  // ============================================================
+  function dropBall(bucket, multiplier, payout) {
+    const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
+    const targetX = (boardWidth / SLOT_COUNT) * (bucketIndex + 0.5);
 
-  function dropBall(
-    bucket,
-    multiplier,
-    payout
-  ) {
-    const bucketIndex =
-      Math.max(
-        0,
-        Math.min(
-          SLOT_COUNT - 1,
-          Math.floor(
-            Number(bucket)
-          )
-        )
-      );
+    // РЎРїР°РІРЅ: СЃР»СѓС‡Р°Р№РЅР°СЏ РїРѕР·РёС†РёСЏ СЃ Р»С‘РіРєРёРј СЃРјРµС‰РµРЅРёРµРј Рє С†РµР»Рё.
+    const firstRowW = colGap * 2;
+    const startX = boardWidth / 2 - firstRowW / 2;
+    const norm = bucketIndex / (SLOT_COUNT - 1);
+    const randX = startX + Math.random() * firstRowW;
+    const biasX = startX + norm * firstRowW;
+    const spawnX = randX * 0.45 + biasX * 0.55;
 
-    // ----------------------------------------------------------
-    // Стартовая точка.
-    //
-    // Никакой привязки к bucket здесь нет.
-    // ----------------------------------------------------------
-
-    const centerX =
-      boardWidth / 2;
-
-    const spawnOffset =
-      (
-        Math.random() -
-        0.5
-      ) *
-      Math.min(
-        colGap * 0.45,
-        16
-      );
-
-    const spawnX =
-      centerX +
-      spawnOffset;
-
-    // Маленькая начальная горизонтальная скорость.
-    const startVx =
-      (
-        Math.random() -
-        0.5
-      ) * 8;
+    const startVx = (targetX - spawnX) * 0.22 + (Math.random() - 0.5) * 6;
 
     const ball = {
-      x: spawnX,
-
-      y:
-        TOP_Y -
-        BALL_RADIUS -
-        5,
-
-      vx: startVx,
-
-      // Шарик начинает падать именно под
-      // воздействием гравитации.
-      vy: 0,
-
-      // Собственный таймер.
+      x: spawnX, y: TOP_Y - 16,
+      vx: startVx, vy: 0,
       elapsed: 0,
-
-      spawnDelay: 0,
-
+      spawnDelay: Math.random() * SPAWN_DELAY_JITTER,
       settled: false,
-
-      // Серверный результат.
-      //
-      // Используется для финального слота
-      // и мягкого направления.
       bucket: bucketIndex,
-
       multiplier,
-
-      payout:
-        Number(payout),
-
-      // Для контроля столкновений.
-      lastCollisionTime: -999
+      payout: Number(payout)
     };
-
     balls.push(ball);
-
     return ball;
   }
 
@@ -1694,488 +764,121 @@ function initPlinko() {
   // ============================================================
 
   function animate(time) {
-    const dt =
-      Math.min(
-        0.033,
-        (
-          time -
-          lastTime
-        ) / 1000 ||
-        0.016
-      );
-
+    const dt = Math.min(0.033, (time - lastTime) / 1000 || 0.016);
     lastTime = time;
-
-    updateAllBalls(dt);
-
+    for (const ball of balls) { if (!ball.settled) updateBall(ball, dt); }
     renderFrame();
-
-    const moving =
-      balls.filter(
-        ball =>
-          !ball.settled
-      );
-
-    if (
-      moving.length ||
-      !requestsDone
-    ) {
-      animationId =
-        requestAnimationFrame(
-          animate
-        );
-
+    const moving = balls.filter(b => !b.settled);
+    if (moving.length || !requestsDone) {
+      animationId = requestAnimationFrame(animate);
       return;
     }
-
-    // ==========================================================
-    // ВСЕ ШАРИКИ ЗАВЕРШИЛИ ПАДЕНИЕ
-    // ==========================================================
-
     animationId = null;
-
     drawBoard();
-
-    const balance =
-      pendingTotalPayout;
-
-    resultEl.textContent =
-      `Выигрыш: +${balance} ⭐`;
-
-    resultEl.classList.add(
-      'show'
-    );
-
-    resultEl.classList.add(
-      'win'
-    );
-
-    resultEl.classList.remove(
-      'lose'
-    );
-
-    setTimeout(
-      () =>
-        resultEl.classList.remove(
-          'show'
-        ),
-      2600
-    );
-
+    const balance = pendingTotalPayout;
+    resultEl.textContent = `Р’С‹РёРіСЂС‹С€: +${balance} в­ђ`;
+    resultEl.classList.add('show', 'win');
+    resultEl.classList.remove('lose');
+    setTimeout(() => resultEl.classList.remove('show'), 2600);
     playWinSound();
-
-    // Обновляем баланс после окончания
-    // всей физической анимации.
-    if (
-      pendingProfile
-    ) {
-      render(
-        {
-          first_name:
-            profile.name
-        },
-        pendingProfile
-      );
-
-      pendingProfile =
-        null;
+    if (pendingProfile) {
+      render({ first_name: profile.name }, pendingProfile);
+      pendingProfile = null;
     }
-
     dropping = false;
-
     balls.length = 0;
-
     renderFrame();
-
-    dropButton.disabled =
-      false;
-
+    dropButton.disabled = false;
     updateDropButton();
   }
-
-  // ============================================================
-  // ОБНОВЛЕНИЕ ВСЕХ ШАРИКОВ
-  // ============================================================
-
-  function updateAllBalls(dt) {
-    for (
-      const ball of balls
-    ) {
-      if (
-        !ball.settled
-      ) {
-        updateBall(
-          ball,
-          dt
-        );
-      }
-    }
-  }
-
-  // ============================================================
-  // КНОПКА
-  // ============================================================
 
   function updateDropButton() {
-    const bet =
-      Math.max(
-        10,
-        Number(
-          betInput.value
-        ) || 10
-      );
-
-    const ballsLabel =
-      currentBalls === 1
-        ? 'шарик'
-        : 'шариков';
-
-    dropButton.textContent =
-      `🎯 Бросить ${currentBalls} ${ballsLabel} за ${bet * currentBalls} ⭐`;
+    const bet = Math.max(10, Number(betInput.value) || 10);
+    const ballsLabel = currentBalls === 1 ? 'С€Р°СЂРёРє' : 'С€Р°СЂРёРєРѕРІ';
+    dropButton.textContent = `рџЋЇ Р‘СЂРѕСЃРёС‚СЊ ${currentBalls} ${ballsLabel} Р·Р° ${bet * currentBalls} в­ђ`;
   }
 
-  const ballsButtons =
-    [
-      ...document.querySelectorAll(
-        '.plinko-balls-btn'
-      )
-    ];
-
-  function setBallsCount(
-    count
-  ) {
-    currentBalls =
-      Math.max(
-        1,
-        Math.min(
-          10,
-          Number(count) || 1
-        )
-      );
-
-    ballsButtons.forEach(
-      btn =>
-        btn.classList.toggle(
-          'active',
-          Number(
-            btn.dataset.balls
-          ) === currentBalls
-        )
-    );
-
+  const ballsButtons = [...document.querySelectorAll('.plinko-balls-btn')];
+  function setBallsCount(count) {
+    currentBalls = Math.max(1, Math.min(10, Number(count) || 1));
+    ballsButtons.forEach(btn => btn.classList.toggle('active', Number(btn.dataset.balls) === currentBalls));
     updateDropButton();
   }
 
-  // ============================================================
-  // ЗАПУСК БРОСКА
-  // ============================================================
-
-  dropButton.onclick =
-    async () => {
-      if (!profile) {
-        return toast(
-          'Подождите, профиль ещё загружается'
-        );
+  dropButton.onclick = async () => {
+    if (!profile) return toast('РџРѕРґРѕР¶РґРёС‚Рµ, РїСЂРѕС„РёР»СЊ РµС‰С‘ Р·Р°РіСЂСѓР¶Р°РµС‚СЃСЏ');
+    if (dropping) return;
+    const bet = Math.max(10, Math.floor(Number(betInput.value) || 10));
+    betInput.value = bet;
+    dropping = true;
+    requestsDone = false;
+    dropButton.disabled = true;
+    resultEl.classList.remove('show');
+    pendingTotalPayout = 0;
+    balls = [];
+    if (animationId) cancelAnimationFrame(animationId);
+    animationId = null;
+    renderFrame();
+    const ballsToDrop = currentBalls;
+    try {
+      const data = await request('/api/plinko/drop', {
+        method: 'POST',
+        body: JSON.stringify({ bet, count: ballsToDrop })
+      });
+      if (!Array.isArray(data.results) || data.results.length !== ballsToDrop
+        || !Number.isFinite(Number(data.totalPayout))) {
+        throw Error('РЎРµСЂРІРµСЂ РІРµСЂРЅСѓР» РЅРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ СЂРµР·СѓР»СЊС‚Р°С‚ РџР»РёРЅРєРѕ');
       }
-
-      if (dropping) {
-        return;
+      const expectedPayout = result => {
+        const tenths = PAYOUT_TENTHS[Number(result.bucket)];
+        const multiplier = Number(result.multiplier);
+        const coefficientTenths = Number(result.coefficientTenths);
+        const payout = Number(result.payout);
+        if (!Number.isInteger(tenths) || coefficientTenths !== tenths
+          || multiplier !== tenths / 10
+          || payout !== Math.floor(bet * coefficientTenths / 10)) {
+          throw Error('РЎРµСЂРІРµСЂ РІРµСЂРЅСѓР» РЅРµСЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‰РёР№ РєРѕСЌС„С„РёС†РёРµРЅС‚ РџР»РёРЅРєРѕ');
+        }
+        return payout;
+      };
+      const checkedTotalPayout = data.results.reduce((sum, r) => sum + expectedPayout(r), 0);
+      if (Number(data.totalPayout) !== checkedTotalPayout) {
+        throw Error('РЎРµСЂРІРµСЂ РІРµСЂРЅСѓР» РЅРµСЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‰СѓСЋ РѕР±С‰СѓСЋ РІС‹РїР»Р°С‚Сѓ РџР»РёРЅРєРѕ');
       }
-
-      const bet =
-        Math.max(
-          10,
-          Math.floor(
-            Number(
-              betInput.value
-            ) || 10
-          )
-        );
-
-      betInput.value =
-        bet;
-
-      dropping = true;
-
-      requestsDone =
-        false;
-
-      dropButton.disabled =
-        true;
-
-      resultEl.classList.remove(
-        'show'
-      );
-
-      pendingTotalPayout =
-        0;
-
-      // Очищаем старую попытку.
+      pendingTotalPayout = checkedTotalPayout;
+      pendingProfile = data.profile;
+      lastTime = performance.now();
+      animationId = requestAnimationFrame(animate);
+      for (const [index, result] of data.results.entries()) {
+        if (index > 0) await new Promise(resolve => setTimeout(resolve, 450));
+        dropBall(result.bucket, result.multiplier, result.payout);
+      }
+      requestsDone = true;
+    } catch (error) {
+      requestsDone = true;
+      dropping = false;
+      pendingProfile = null;
+      pendingTotalPayout = 0;
+      if (animationId) cancelAnimationFrame(animationId);
+      animationId = null;
       balls = [];
-
-      if (animationId) {
-        cancelAnimationFrame(
-          animationId
-        );
-      }
-
-      animationId =
-        null;
-
       renderFrame();
-
-      const ballsToDrop =
-        currentBalls;
-
-      let lastProfile =
-        null;
-
-      try {
-        // ======================================================
-        // СЕРВЕР
-        // ======================================================
-
-        const data =
-          await request(
-            '/api/plinko/drop',
-            {
-              method: 'POST',
-
-              body:
-                JSON.stringify({
-                  bet,
-                  count:
-                    ballsToDrop
-                })
-            }
-          );
-
-        lastProfile =
-          data.profile;
-
-        if (
-          !Array.isArray(
-            data.results
-          ) ||
-          data.results.length !==
-            ballsToDrop ||
-          !Number.isFinite(
-            Number(
-              data.totalPayout
-            )
-          )
-        ) {
-          throw Error(
-            'Сервер вернул некорректный результат Плинко'
-          );
-        }
-
-        // ======================================================
-        // ПРОВЕРКА РЕЗУЛЬТАТОВ
-        // ======================================================
-
-        const expectedPayout =
-          result => {
-            const tenths =
-              PAYOUT_TENTHS[
-                Number(
-                  result.bucket
-                )
-              ];
-
-            const multiplier =
-              Number(
-                result.multiplier
-              );
-
-            const coefficientTenths =
-              Number(
-                result.coefficientTenths
-              );
-
-            const payout =
-              Number(
-                result.payout
-              );
-
-            if (
-              !Number.isInteger(
-                tenths
-              ) ||
-              coefficientTenths !==
-                tenths ||
-              multiplier !==
-                tenths / 10 ||
-              payout !==
-                Math.floor(
-                  bet *
-                  coefficientTenths /
-                  10
-                )
-            ) {
-              throw Error(
-                'Сервер вернул несоответствующий коэффициент Плинко'
-              );
-            }
-
-            return payout;
-          };
-
-        const checkedTotalPayout =
-          data.results.reduce(
-            (
-              sum,
-              result
-            ) =>
-              sum +
-              expectedPayout(
-                result
-              ),
-            0
-          );
-
-        if (
-          Number(
-            data.totalPayout
-          ) !==
-          checkedTotalPayout
-        ) {
-          throw Error(
-            'Сервер вернул несоответствующую общую выплату Плинко'
-          );
-        }
-
-        pendingTotalPayout =
-          checkedTotalPayout;
-
-        pendingProfile =
-          lastProfile;
-
-        // ======================================================
-        // ЗАПУСК ANIMATION LOOP
-        // ======================================================
-
-        lastTime =
-          performance.now();
-
-        animationId =
-          requestAnimationFrame(
-            animate
-          );
-
-        // ======================================================
-        // ПОСЛЕДОВАТЕЛЬНЫЙ ЗАПУСК ШАРИКОВ
-        // ======================================================
-
-        for (
-          const [
-            index,
-            result
-          ]
-          of data.results.entries()
-        ) {
-          if (
-            index > 0
-          ) {
-            await new Promise(
-              resolve =>
-                setTimeout(
-                  resolve,
-                  450
-                )
-            );
-          }
-
-          dropBall(
-            result.bucket,
-            result.multiplier,
-            result.payout
-          );
-        }
-
-        requestsDone =
-          true;
-
-      } catch (
-        error
-      ) {
-        requestsDone =
-          true;
-
-        dropping =
-          false;
-
-        pendingProfile =
-          null;
-
-        pendingTotalPayout =
-          0;
-
-        if (
-          animationId
-        ) {
-          cancelAnimationFrame(
-            animationId
-          );
-        }
-
-        animationId =
-          null;
-
-        balls = [];
-
-        renderFrame();
-
-        toast(
-          error.message
-        );
-
-        dropButton.disabled =
-          false;
-
-        updateDropButton();
-      }
-    };
-
-  // ============================================================
-  // UI
-  // ============================================================
-
-  betInput.addEventListener(
-    'input',
-    updateDropButton
-  );
-
-  ballsButtons.forEach(
-    btn =>
-      btn.addEventListener(
-        'click',
-        () => {
-          if (
-            !dropping
-          ) {
-            setBallsCount(
-              btn.dataset.balls
-            );
-          }
-        }
-      )
-  );
-
-  window.addEventListener(
-    'resize',
-    () => {
-      resizeCanvas();
-      drawBoard();
+      toast(error.message);
+      dropButton.disabled = false;
+      updateDropButton();
     }
-  );
+  };
 
+  betInput.addEventListener('input', updateDropButton);
+  ballsButtons.forEach(btn => btn.addEventListener('click', () => {
+    if (!dropping) setBallsCount(btn.dataset.balls);
+  }));
+  window.addEventListener('resize', () => { resizeCanvas(); drawBoard(); });
   resizeCanvas();
   drawBoard();
   updateDropButton();
-}
 
-// ============================ КОНЕЦ ПЛИНКО ============================
+}
 
 request('/api/me').then(x=>{ render(x.user,x.profile); return restoreRocketRound(); }).then(()=>initPlinko()).catch(e=>toast(e.message));
 request('/api/cases').then(cases=>cases.forEach(showCase)).catch(e=>toast(e.message));
