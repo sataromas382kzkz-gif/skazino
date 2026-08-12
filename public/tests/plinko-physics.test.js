@@ -60,13 +60,13 @@ function pegContactRadius() {
 }
 
 const PLINKO_GRAVITY = 260;
-const SUBSTEPS = 6;
-const RESTITUTION = 0.45;
-const STEER_STRENGTH = 8;
-const STEER_BELOW_PEGS = 30;
-const STEER_RESCUE = 60;
-const MAX_SPEED = 520;
-const STILL_LIMIT = 1.0;
+const SUBSTEPS = 32;
+const RESTITUTION = 0.3;
+const STEER_STRENGTH = 70;
+const STEER_BELOW_PEGS = 150;
+const STEER_RESCUE = 900;
+const MAX_SPEED = 2600;
+const STILL_LIMIT = 0.15;
 
 function settleBall(ball) {
   const slotWidth = boardWidth / SLOT_COUNT;
@@ -118,11 +118,13 @@ function applyBallPhysics(ball, dt) {
   const R = contactRadius(ball);
   const h = dt / SUBSTEPS;
   for (let s = 0; s < SUBSTEPS; s += 1) {
-    ball.vy += PLINKO_GRAVITY * h;
+    const g = ball.wedged ? PLINKO_GRAVITY * 7 : PLINKO_GRAVITY;
+    ball.vy += g * h;
     const steer = ball.wedged ? STEER_RESCUE
       : ball.y > lastRowY ? STEER_BELOW_PEGS : STEER_STRENGTH;
     ball.vx += (targetX - ball.x) * steer * h;
-    ball.vx *= (1 - 1.4 * h);
+    ball.vx *= (1 - 2.0 * h);
+    if (ball.wedged) ball.vy += 800 * h;
     const speed = Math.hypot(ball.vx, ball.vy);
     if (speed > MAX_SPEED) { ball.vx *= MAX_SPEED / speed; ball.vy *= MAX_SPEED / speed; }
     ball.x += ball.vx * h;
