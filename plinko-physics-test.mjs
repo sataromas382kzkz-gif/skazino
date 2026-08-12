@@ -1,4 +1,4 @@
-// Смоук-тест каскадной анимации шарика Плинко (public/app.js).
+// Смоук-тест плавной анимации шарика Плинко (public/app.js).
 // Гарантии модели с жёсткими точками:
 //  1) шарик ударяется о точку в каждом ряду и отскакивает от её поверхности
 //     (минимум ROWS ударов; шарик никогда не проходит сквозь точку);
@@ -44,8 +44,6 @@ function beginSegment(ball, targetX, targetY, vy0, targetIsPeg) {
   ball.tx = targetX;
   ball.ty = targetY;
   ball.targetIsPeg = targetIsPeg;
-  // После удара о точку шарик уходит только вниз-вбок (без подъёма обратно
-  // в жёсткую зону той же точки).
   ball.vy0 = vy0 ?? (6 + Math.random() * 16);
   const dy = Math.max(1, targetY - ball.py);
   ball.segT = (-ball.vy0 + Math.sqrt(ball.vy0 * ball.vy0 + 2 * PLINKO_GRAVITY * dy)) / PLINKO_GRAVITY;
@@ -69,15 +67,35 @@ function firstSegmentCircleHit(ax, ay, bx, by, cx, cy, r) {
   return -1;
 }
 
+function rollPoint(pegX, pegY, angle) {
+  return { x: pegX + Math.cos(angle) * contactRadius, y: pegY + Math.sin(angle) * contactRadius };
+}
+
+function beginRoll(ball, targetAngle, onDone) {
+  const curA = Math.atan2(ball.y - ball.pegY, ball.x - ball.pegX);
+  let delta = targetAngle - curA;
+  while (delta > Math.PI) delta -= 2 * Math.PI;
+  while (delta < -Math.PI) delta += 2 * Math.PI;
+  ball.rollA0 = curA;
+  ball.rollA1 = curA + delta;
+  ball.rollT = 0;
+  ball.phase = 'roll';
+  ball.onRollDone = onDone;
+}
+
 function onPegHit(ball, pegX, pegY) {
   const targetSlotX = slotWidth * (ball.bucket + 0.5);
   const rowIndex = Math.round((pegY - TOP_Y) / rowGap);
+  ball.pegX = pegX;
+  ball.pegY = pegY;
   if (rowIndex >= ROWS - 1) {
     const dirSign = targetSlotX >= pegX ? 1 : -1;
-    ball.x = pegX + dirSign * contactRadius;
-    ball.y = pegY;
-    ball.finalStage = 1;
-    beginSegment(ball, ball.x, bottomY - 28, 0, false);
+    beginRoll(ball, dirSign > 0 ? 0 : Math.PI, () => {
+      ball.x = pegX + dirSign * contactRadius;
+      ball.y = pegY;
+      ball.finalStage = 1;
+      beginSegment(ball, ball.x, bottomY - 28, 0, false);
+    });
     return;
   }
   const nextRow = rowsAll[rowIndex + 1];
@@ -96,13 +114,25 @@ function onPegHit(ball, pegX, pegY) {
     if (distance < bestDistance) { bestDistance = distance; best = point; }
   }
   const dirSign = best.x >= pegX ? 1 : -1;
-  ball.x = pegX + dirSign * contactRadius;
-  ball.y = pegY;
-  beginSegment(ball, best.x, best.y, undefined, true);
+  beginRoll(ball, dirSign > 0 ? 0 : Math.PI, () => {
+    ball.x = pegX + dirSign * contactRadius;
+    ball.y = pegY;
+    beginSegment(ball, best.x, best.y, undefined, true);
+  });
 }
 
 function updateBall(ball, dt) {
   if (ball.settled) return;
+  if (ball.phase === 'roll') {
+    ball.rollT += dt * 6;
+    const t = Math.min(1, ball.rollT);
+    const angle = ball.rollA0 + (ball.rollA1 - ball.rollA0) * t;
+    const p = rollPoint(ball.pegX, ball.pegY, angle);
+    ball.x = p.x;
+    ball.y = p.y;
+    if (t >= 1) { ball.phase = 'flight'; ball.onRollDone(); }
+    return;
+  }
   const t0 = ball.segTime;
   const t1 = ball.segTime + dt;
   ball.segTime = t1;
@@ -111,8 +141,6 @@ function updateBall(ball, dt) {
   ball.y = ball.py + ball.vy0 * t1 + 0.5 * PLINKO_GRAVITY * t1 * t1;
 
   if (!ball.targetIsPeg) {
-    // Финальный спуск в свой слот: вертикальная траектория от бока последней
-    // точки не пересекает ни свою точку, ни соседние — отскоков не появляется.
     if (ball.finalStage === 1 && ball.y >= ball.ty) {
       const targetSlotX = slotWidth * (ball.bucket + 0.5);
       ball.finalStage = 2;
@@ -127,14 +155,15 @@ function updateBall(ball, dt) {
     return;
   }
 
-  // Жёсткий контакт с ЦЕЛЕВОЙ точкой.
+  // Жёсткий контакт с ЦЕЛЕВОЙ точкой: шарик останавливается на поверхности и
+  // плавно перекатывается по дуге к боку (без телепорта и без провалов).
   const px0 = ball.px + ball.vx * t0;
   const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
   const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, contactRadius);
-  if (contact >= 0 || Math.hypot(ball.x - ball.tx, ball.y - ball.ty) <= contactRadius) {
+  if (contact >= 0) {
     ball.bounces = (ball.bounces || 0) + 1;
-    // onPegHit размещает шарик на боку точки — отскок идёт по касательной,
-    // поэтому ни через одну точку шарик не проходит.
+    ball.x = px0 + (ball.x - px0) * contact;
+    ball.y = py0 + (ball.y - py0) * contact;
     onPegHit(ball, ball.tx, ball.ty);
   }
 }
@@ -149,6 +178,7 @@ function runSimulation(bucket) {
     tx: 0, ty: 0, vx: 0, vy: 0, vy0: 0,
     segTime: 0, segT: 1,
     bounces: 0, finalStage: 0,
+    phase: 'flight',
     settled: false, bucket
   };
   let best = firstRow[0];
@@ -225,7 +255,7 @@ for (let bucket = 0; bucket < SLOT_COUNT; bucket += 1) {
 const avgFrames = (totalSteps / totalRuns).toFixed(1);
 console.log(`Прогонов: ${totalRuns}, среднее кадров: ${avgFrames}, макс. отступ от слота: ${maxDist.toFixed(1)}px, мин. дистанция до точки: ${minPegDistOverall.toFixed(2)}px (радиус ${contactRadius}), ударов: ${minBounces}..${maxBounces}`);
 if (failures === 0) {
-  console.log('Анимация шарика Плинко: OK — точки жёсткие, шарик отскакивает от их поверхности и садится в свой слот.');
+  console.log('Анимация шарика Плинко: OK — точки жёсткие, шарик плавно перекатывается по их поверхности и садится в свой слот.');
   process.exitCode = 0;
 } else {
   console.log(`Анимация шарика Плинко: ${failures} ошибок`);
