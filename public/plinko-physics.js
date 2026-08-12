@@ -6,6 +6,7 @@ const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
 const FALL_SPEED = 120;
 const MIN_DOWNWARD_SPEED = 60;
+const MAX_HORIZONTAL_SPEED = 78;
 const RESTITUTION = 0.32;
 const TANGENT_KEEP = 0.72;
 const SUBSTEPS = 4;
@@ -69,7 +70,7 @@ export function createPlinkoBall(width, height, seed) {
   return {
     x: spawnX,
     y: TOP_Y - 16,
-    vx: spawnOffset * 12 + (rng() - 0.5) * 600,
+    vx: spawnOffset * 12 + (rng() - 0.5) * 150,
     vy: 0,
     spawnX,
     spawnY: TOP_Y - 16,
@@ -108,11 +109,18 @@ function resolvePeg(ball, peg, contactRadius) {
 }
 
 function keepFallSpeed(ball) {
-  let vx = Number(ball.vx) || 0;
-  let vy = Math.max(MIN_DOWNWARD_SPEED, Number(ball.vy) || 0);
-  const speed = Math.hypot(vx, vy) || FALL_SPEED;
-  ball.vx = vx * FALL_SPEED / speed;
-  ball.vy = vy * FALL_SPEED / speed;
+  const vx = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, Number(ball.vx) || 0));
+  const vy = Math.max(MIN_DOWNWARD_SPEED, Number(ball.vy) || 0);
+  const horizontalPart = Math.min(MAX_HORIZONTAL_SPEED, Math.abs(vx));
+  const downwardPart = Math.sqrt(Math.max(0, FALL_SPEED * FALL_SPEED - horizontalPart * horizontalPart));
+  ball.vx = Math.sign(vx) * horizontalPart;
+  ball.vy = Math.max(MIN_DOWNWARD_SPEED, downwardPart, Math.min(FALL_SPEED, vy));
+
+  const speed = Math.hypot(ball.vx, ball.vy);
+  if (speed > FALL_SPEED) {
+    ball.vx *= FALL_SPEED / speed;
+    ball.vy *= FALL_SPEED / speed;
+  }
 }
 
 export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
