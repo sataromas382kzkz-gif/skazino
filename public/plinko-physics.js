@@ -4,13 +4,34 @@ const PADDING_X = 30;
 const TOP_Y = 22;
 const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
-const FALL_SPEED = 120;
-const MAX_HORIZONTAL_SPEED = FALL_SPEED;
-const FALL_TURN_RATE = 30;
-const HORIZONTAL_DRIFT_ACCELERATION = 120;
-const SUBSTEPS = 4;
-const CONTACT_CLEARANCE = 1.25;
-const MAX_STEPS = 2400;
+
+// ---------------------------------------------------------------------------
+// ФИЗИКА ШАРИКА КАК ФИЗИЧЕСКОГО ОБЪЕКТА
+// ---------------------------------------------------------------------------
+// Шарик — тяжёлый объект с инерцией: падает под действием гравитации,
+// сталкивается с колышками по закону сохранения импульса (с потерями энергии),
+// трение раскручивает его, а сопротивление воздуха гасит разгон.
+// Симуляция полностью детерминирована: один seed => один результат и на
+// сервере, и в браузере, поэтому визуальное падение совпадает с выплатой.
+const PHYSICS_DT = 1 / 120;      // фиксированный шаг (клиент и сервер совпадают)
+const SUBSTEPS = 8;              // подшагов на шаг для точных коллизий
+const MAX_STEPS = 3600;          // запас 30 секунд на полное падение
+const GRAVITY = 370;             // px/с² — подобрано под ~3.5 сек полёта
+const RESTITUTION = 0.16;        // упругость удара о колышек (тяжёлый шарик)
+const WALL_RESTITUTION = 0.45;   // упругость о боковые стены
+const FRICTION = 0.16;           // трение скольжения о колышек
+const AIR_DRAG = 0.05;           // сопротивление воздуха
+const MAX_SPEED = 420;           // предел скорости для стабильности
+const SPIN_FACTOR = 0.24;        // насколько трение раскручивает шарик
+const SPIN_DAMP = 0.995;         // затухание вращения
+// Тяжёлый шарик почти не «вылетает» вверх после удара: вертикальная
+// составляющая гасится, горизонтальное отклонение сохраняется.
+const UP_KILL = 0.22;
+// Минимальная скорость вниз: шарик не может «зависнуть» между колышками.
+const MIN_FALL = 18;
+// Пока шарик не отдалится от последнего колышка на это расстояние, он
+// считается «в контакте» и не получает повторного отскока (только скользит).
+const CONTACT_CLEARANCE = 1.4;
 
 function makeRng(seed) {
   let value = Number(seed) >>> 0;
@@ -70,91 +91,91 @@ export function createPlinkoBall(width, height, seed) {
     x: spawnX,
     y: TOP_Y - 16,
     vx: 0,
-    vy: FALL_SPEED,
+    vy: 0,
     spawnX,
     spawnY: TOP_Y - 16,
-    driftVx: (rng() - 0.5) * MAX_HORIZONTAL_SPEED * 2,
     radius: metrics.ballRadius,
     settled: false,
     actualBucket: null,
     bounces: 0,
     impact: 0,
+    angle: 0,
+    spin: 0,
+    lastPeg: null,
     seed: Number(seed) >>> 0,
     rng
   };
 }
 
-function removeInwardPegVelocity(ball, peg) {
-  const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
-  if (distance < 1e-6) return;
-  const nx = (ball.x - peg.x) / distance;
-  const ny = (ball.y - peg.y) / distance;
-  const normalSpeed = ball.vx * nx + ball.vy * ny;
-  if (normalSpeed < 0) {
-    ball.vx -= nx * normalSpeed;
-    ball.vy -= ny * normalSpeed;
+// Столкновение с боковой стеной: мягкое отражение по горизонтали.
+function collideBallWall(ball, metrics) {
+  if (ball.x < ball.radius) {
+    ball.x = ball.radius;
+    if (ball.vx < 0) ball.vx = -ball.vx * WALL_RESTITUTION;
+  } else if (ball.x > metrics.boardWidth - ball.radius) {
+    ball.x = metrics.boardWidth - ball.radius;
+    if (ball.vx > 0) ball.vx = -ball.vx * WALL_RESTITUTION;
   }
-  ball.vy = Math.max(0, ball.vy);
 }
 
-function resolvePeg(ball, peg, contactRadius) {
+// Полностью неупругое скольжение вдоль колышка: убираем только скорость,
+// направленную внутрь. Шарик не отскакивает, а обтекает колышек.
+function isSamePeg(first, second) {
+  return Boolean(first && second && first.x === second.x && first.y === second.y);
+}
+
+function slideOffPeg(ball, peg, contactRadius) {
   const dx = ball.x - peg.x;
   const dy = ball.y - peg.y;
-  const distance = Math.hypot(dx, dy);
-  if (distance > contactRadius + 1e-6) return;
+  const dist = Math.hypot(dx, dy) || 1e-6;
+  const nx = dx / dist;
+  const ny = dy / dist;
+  const vn = ball.vx * nx + ball.vy * ny;
+  if (vn >= 0) return;
+  // Удаляем только нормальную составляющую внутрь колышка.
+  ball.vx -= nx * vn;
+  ball.vy -= ny * vn;
+  // Трение раскручивает шарик.
+  const tx = -ny;
+  const ty = nx;
+  const vt = ball.vx * tx + ball.vy * ty;
+  ball.spin += vt * SPIN_FACTOR * 0.5;
+}
 
-  const fallbackSide = Math.sign(ball.vx) || 1;
-  const nx = distance < 1e-6 ? -fallbackSide * 0.35 : dx / distance;
-  const ny = distance < 1e-6 ? -Math.sqrt(1 - nx * nx) : dy / distance;
-  ball.x = peg.x + nx * contactRadius;
-  ball.y = peg.y + ny * contactRadius;
+// Импульсное столкновение с колышком (первый контакт).
+// Масса шарика = 1, колышек неподвижен (масса = бесконечность).
+function bounceOffPeg(ball, peg, contactRadius) {
+  const dx = ball.x - peg.x;
+  const dy = ball.y - peg.y;
+  const dist = Math.hypot(dx, dy) || 1e-6;
+  const nx = dx / dist;
+  const ny = dy / dist;
+  const vn = ball.vx * nx + ball.vy * ny;
+  if (vn >= 0) return;
 
-  // Полностью неупругое столкновение: удаляем только скорость, направленную
-  // внутрь штырька. Нормальная скорость не отражается обратно, поэтому шарик
-  // не отскакивает, а продолжает движение по касательной.
-  removeInwardPegVelocity(ball, peg);
+  // Нормальный импульс с потерей энергии.
+  const jn = -(1 + RESTITUTION) * vn;
+  ball.vx += jn * nx;
+  ball.vy += jn * ny;
+
+  // Трение: тангенциальный импульс, ограниченный силой трения.
+  const tx = -ny;
+  const ty = nx;
+  const vt = ball.vx * tx + ball.vy * ty;
+  const maxFriction = FRICTION * Math.abs(jn);
+  const jt = -Math.max(-maxFriction, Math.min(maxFriction, vt));
+  ball.vx += jt * tx;
+  ball.vy += jt * ty;
+  ball.spin += jt * SPIN_FACTOR;
+
+  // Тяжёлый шарик почти не отскакивает вверх.
+  if (ball.vy < 0) ball.vy *= UP_KILL;
+  // Шарик не «зависает»: всегда остаётся небольшое движение вниз.
+  if (ball.vy < MIN_FALL) ball.vy = MIN_FALL;
+
   ball.bounces += 1;
-  ball.impact = 0;
+  ball.impact = Math.min(1, Math.abs(vn) / 250);
   ball.lastPeg = peg;
-}
-
-function isSamePeg(first, second) {
-  return first && second && first.x === second.x && first.y === second.y;
-}
-
-function keepFallSpeed(ball, dt = 0, allowFallTurn = true) {
-  let vx = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, Number(ball.vx) || 0));
-  if (ball.y >= TOP_Y && dt > 0 && Number.isFinite(ball.driftVx)) {
-    const drift = Math.max(-MAX_HORIZONTAL_SPEED, Math.min(MAX_HORIZONTAL_SPEED, ball.driftVx));
-    const adjustment = Math.min(Math.abs(drift - vx), HORIZONTAL_DRIFT_ACCELERATION * dt);
-    vx += Math.sign(drift - vx) * adjustment;
-  }
-  if (allowFallTurn && dt > 0) {
-    const turn = Math.min(Math.abs(vx), FALL_TURN_RATE * dt);
-    vx -= Math.sign(vx) * turn;
-  }
-  ball.vx = vx;
-  ball.vy = Math.sqrt(Math.max(0, FALL_SPEED * FALL_SPEED - vx * vx));
-}
-
-function findFirstPegHit(startX, startY, moveX, moveY, pegs, contactRadius, lastPeg) {
-  const movementLengthSquared = moveX * moveX + moveY * moveY;
-  if (movementLengthSquared < 1e-9) return null;
-
-  let firstHit = null;
-  for (const peg of pegs) {
-    if (isSamePeg(peg, lastPeg)) continue;
-    const offsetX = startX - peg.x;
-    const offsetY = startY - peg.y;
-    const c = offsetX * offsetX + offsetY * offsetY - contactRadius * contactRadius;
-    const b = 2 * (offsetX * moveX + offsetY * moveY);
-    const discriminant = b * b - 4 * movementLengthSquared * c;
-    if (discriminant < 0) continue;
-    const hitTime = c <= 0 ? 0 : (-b - Math.sqrt(discriminant)) / (2 * movementLengthSquared);
-    if (hitTime < 0 || hitTime > 1 || (firstHit && hitTime >= firstHit.time)) continue;
-    firstHit = { peg, time: hitTime };
-  }
-  return firstHit;
 }
 
 export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
@@ -167,59 +188,56 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
   ball.impact = Math.max(0, (ball.impact || 0) - Math.max(0, Number(dt) || 0) * 5);
 
   for (let substep = 0; substep < SUBSTEPS; substep += 1) {
+    // ---- гравитация: единственная постоянная сила ----
+    ball.vy += GRAVITY * h;
+
+    // ---- сопротивление воздуха ----
+    ball.vx *= (1 - AIR_DRAG * h);
+    ball.vy *= (1 - AIR_DRAG * h);
+
+    // ---- предел скорости ----
+    const speedSq = ball.vx * ball.vx + ball.vy * ball.vy;
+    if (speedSq > MAX_SPEED * MAX_SPEED) {
+      const k = MAX_SPEED / Math.sqrt(speedSq);
+      ball.vx *= k;
+      ball.vy *= k;
+    }
+
+    // ---- интеграция ----
+    ball.x += ball.vx * h;
+    ball.y += ball.vy * h;
+
+    // ---- вращение ----
+    ball.angle += ball.spin * h;
+    ball.spin *= SPIN_DAMP;
+
+    // ---- боковые стены ----
+    collideBallWall(ball, metrics);
+
+    // ---- контакт с последним колышком: скользим, не отскакиваем повторно ----
     if (ball.lastPeg) {
-      const distanceFromLastPeg = Math.hypot(ball.x - ball.lastPeg.x, ball.y - ball.lastPeg.y);
-      if (distanceFromLastPeg >= contactRadius * CONTACT_CLEARANCE) ball.lastPeg = null;
+      const d = Math.hypot(ball.x - ball.lastPeg.x, ball.y - ball.lastPeg.y);
+      if (d >= contactRadius * CONTACT_CLEARANCE) ball.lastPeg = null;
+      else slideOffPeg(ball, ball.lastPeg, contactRadius);
     }
-    keepFallSpeed(ball, h, !ball.lastPeg);
-    if (ball.lastPeg) removeInwardPegVelocity(ball, ball.lastPeg);
 
-    let remaining = 1;
-    for (let contact = 0; contact < 3 && remaining > 1e-6; contact += 1) {
-      const hit = findFirstPegHit(
-        ball.x,
-        ball.y,
-        ball.vx * h * remaining,
-        ball.vy * h * remaining,
-        pegs,
-        contactRadius,
-        ball.lastPeg
-      );
-      if (!hit) {
-        ball.x += ball.vx * h * remaining;
-        ball.y += ball.vy * h * remaining;
-        break;
+    // ---- колышки ----
+    for (const peg of pegs) {
+      const dx = ball.x - peg.x;
+      const dy = ball.y - peg.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= contactRadius) continue;
+      // Выталкиваем из колышка.
+      const nx = dist < 1e-6 ? 1 : dx / dist;
+      const ny = dist < 1e-6 ? 0 : dy / dist;
+      ball.x = peg.x + nx * contactRadius;
+      ball.y = peg.y + ny * contactRadius;
+      if (isSamePeg(peg, ball.lastPeg)) {
+        slideOffPeg(ball, peg, contactRadius);
+      } else {
+        bounceOffPeg(ball, peg, contactRadius);
       }
-      ball.x += ball.vx * h * remaining * hit.time;
-      ball.y += ball.vy * h * remaining * hit.time;
-      resolvePeg(ball, hit.peg, contactRadius);
-      remaining *= 1 - hit.time;
     }
-
-    if (ball.lastPeg) {
-      const dx = ball.x - ball.lastPeg.x;
-      const dy = ball.y - ball.lastPeg.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance < contactRadius) {
-        const nx = distance < 1e-6 ? 0 : dx / distance;
-        const ny = distance < 1e-6 ? -1 : dy / distance;
-        ball.x = ball.lastPeg.x + nx * contactRadius;
-        ball.y = ball.lastPeg.y + ny * contactRadius;
-      }
-      removeInwardPegVelocity(ball, ball.lastPeg);
-    }
-
-    if (ball.x < ball.radius) {
-      ball.x = ball.radius;
-      ball.vx = Math.abs(ball.vx);
-    } else if (ball.x > metrics.boardWidth - ball.radius) {
-      ball.x = metrics.boardWidth - ball.radius;
-      ball.vx = -Math.abs(ball.vx);
-    }
-
-    // Скорость сохраняется после любой корректировки положения и у границ поля.
-    keepFallSpeed(ball);
-    if (ball.lastPeg) removeInwardPegVelocity(ball, ball.lastPeg);
   }
 
   if (ball.y >= bottomY) {
@@ -235,10 +253,9 @@ export function simulatePlinkoDrop(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
   const prepared = { metrics, pegs: plinkoPegs(metrics.boardWidth, metrics.boardHeight) };
   const ball = createPlinkoBall(metrics.boardWidth, metrics.boardHeight, seed);
-  const dt = 1 / 120;
   let steps = 0;
   while (!ball.settled && steps < MAX_STEPS) {
-    stepPlinkoBall(ball, metrics.boardWidth, metrics.boardHeight, dt, prepared);
+    stepPlinkoBall(ball, metrics.boardWidth, metrics.boardHeight, PHYSICS_DT, prepared);
     steps += 1;
   }
   if (!ball.settled) throw new Error('Шарик Плинко не завершил физическое падение');

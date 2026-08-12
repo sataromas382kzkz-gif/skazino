@@ -1,4 +1,4 @@
-import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=physics-v11-20260812';
+import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=physics-v12-20260812';
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -629,6 +629,16 @@ function initPlinko() {
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, radius, 0, Math.PI * 2);
       ctx.fill();
+      // Вращающаяся метка: показывает, что шарик физически катится.
+      if (!ball.settled) {
+        const markerAngle = ball.angle || 0;
+        const markerX = ball.x + Math.cos(markerAngle) * radius * 0.5;
+        const markerY = ball.y + Math.sin(markerAngle) * radius * 0.5;
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath();
+        ctx.arc(markerX, markerY, radius * 0.20, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     };
     for (const ball of balls) renderBall(ball);

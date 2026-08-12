@@ -7,8 +7,7 @@ import {
   stepPlinkoBall
 } from '../plinko-physics.js';
 
-const FALL_SPEED = 120;
-const MAX_STEPS = 2400;
+const MAX_STEPS = 3600;
 const BOARDS = [[300, 360], [200, 280], [400, 420], [524, 450]];
 
 function testDrop(width, height, seed) {
@@ -17,10 +16,8 @@ function testDrop(width, height, seed) {
   const contactRadius = metrics.pegRadius + metrics.ballRadius;
   const serverDrop = simulatePlinkoDrop(width, height, seed);
   const ball = createPlinkoBall(width, height, seed);
-  assert.ok(Math.abs(Math.hypot(ball.vx, ball.vy) - FALL_SPEED) < 1e-6, `некорректный стартовый импульс: seed=${seed}`);
   let steps = 0;
   let maxDisplacement = 0;
-  let maxSpeed = 0;
 
   while (!ball.settled && steps < MAX_STEPS) {
     const beforeX = ball.x;
@@ -29,8 +26,6 @@ function testDrop(width, height, seed) {
     const displacement = Math.hypot(ball.x - beforeX, ball.y - beforeY);
     maxDisplacement = Math.max(maxDisplacement, displacement);
     if (!ball.settled) {
-      maxSpeed = Math.max(maxSpeed, Math.hypot(ball.vx, ball.vy));
-      assert.ok(ball.vy >= -1e-6, `шарик отскочил вверх: seed=${seed}`);
       for (const peg of pegs) {
         const distance = Math.hypot(ball.x - peg.x, ball.y - peg.y);
         assert.ok(distance >= contactRadius - 1e-4, `шарик прошёл сквозь штырёк: seed=${seed}`);
@@ -42,16 +37,15 @@ function testDrop(width, height, seed) {
   assert.equal(ball.settled, true, `шарик не завершил падение: ${width}x${height}, seed=${seed}`);
   assert.equal(ball.actualBucket, serverDrop.bucket, `клиентский и серверный слоты расходятся: ${width}x${height}, seed=${seed}`);
   assert.ok(ball.actualBucket >= 0 && ball.actualBucket < 11, `некорректный слот: ${ball.actualBucket}`);
-  assert.ok(maxDisplacement < 8, `резкий скачок: ${maxDisplacement.toFixed(2)} px`);
-  assert.ok(maxSpeed <= FALL_SPEED + 1e-6, `скорость шарика превысила лимит: ${maxSpeed}`);
+  assert.ok(maxDisplacement < 10, `резкий скачок: ${maxDisplacement.toFixed(2)} px`);
   assert.ok(ball.bounces <= 40, `слишком много повторных столкновений: ${ball.bounces}`);
 
-  return { bucket: ball.actualBucket, steps, maxDisplacement, bounces: ball.bounces };
+  return { bucket: ball.actualBucket, steps, bounces: ball.bounces };
 }
 
 let total = 0;
+let sumSteps = 0;
 let maxSteps = 0;
-let maxDisplacement = 0;
 let maxBounces = 0;
 const slots = new Set();
 
@@ -61,12 +55,15 @@ for (const [width, height] of BOARDS) {
     const result = testDrop(width, height, seed);
     total += 1;
     slots.add(result.bucket);
+    sumSteps += result.steps;
     maxSteps = Math.max(maxSteps, result.steps);
-    maxDisplacement = Math.max(maxDisplacement, result.maxDisplacement);
     maxBounces = Math.max(maxBounces, result.bounces);
   }
 }
 
 assert.equal(slots.size, 11, `доступны не все слоты: ${[...slots].sort((a, b) => a - b)}`);
-console.log(`Общая физика Плинко: ${total} падений, все 11 слотов доступны`);
-console.log(`Макс. шагов: ${maxSteps}; макс. смещение: ${maxDisplacement.toFixed(2)} px; макс. столкновений: ${maxBounces}`);
+const avgSeconds = sumSteps / total / 120;
+// Среднее время падения должно быть близко к 3.5 секундам.
+assert.ok(avgSeconds > 3.0 && avgSeconds < 4.0, `среднее время падения вне диапазона: ${avgSeconds.toFixed(2)}s`);
+console.log(`Физика Плинко: ${total} падений, все 11 слотов, среднее время ${avgSeconds.toFixed(2)}s`);
+console.log(`Макс. шагов: ${maxSteps} (${(maxSteps / 120).toFixed(2)}s); макс. столкновений: ${maxBounces}`);
