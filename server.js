@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
 import { promoCodes } from './promo-codes.js';
 import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, calculatePlinkoPayout, plinkoResult } from './plinko.js';
+import { simulatePlinkoDrop } from './public/plinko-physics.js';
 
 const ADMIN_TELEGRAM_ID = '5310549412';
 const adminStates = new Map();
@@ -640,24 +641,9 @@ app.get('/api/cases', (req, res) => {
 // от погрешности IEEE-754: 12 * 10 / 10 всегда даёт 12, а не 11.999...
 const PLINKO_PAYOUT_TENTHS = PLINKO_COEFFICIENT_TENTHS;
 const PLINKO_PAYOUTS = PLINKO_PAYOUT_TENTHS.map(value => value / 10);
-// Вероятности итоговых коэффициентов: 0.2x — 21%, 0.5x — 20%,
-// 1.0x — 20%, 1.2x — 22%, 1.5x — 15%, 5.0x — 2%.
-// Для симметричных боковых слотов вероятность каждого коэффициента
-// разделена поровну между левой и правой сторонами. Сумма — 100%.
-const PLINKO_PROBABILITIES = [0.105, 0.10, 0.10, 0.11, 0.075, 0.02, 0.075, 0.11, 0.10, 0.10, 0.105];
 // Очередь нужна локальному файловому хранилищу: параллельные броски не должны
 // перезаписывать баланс результатом, рассчитанным по устаревшему профилю.
 let plinkoLocalQueue = Promise.resolve();
-
-function drawPlinkoBucket() {
-  const roll = crypto.randomInt(0, 1000) / 1000;
-  let cumulative = 0;
-  for (let index = 0; index < PLINKO_PROBABILITIES.length; index += 1) {
-    cumulative += PLINKO_PROBABILITIES[index];
-    if (roll < cumulative) return index;
-  }
-  return PLINKO_PROBABILITIES.length - 1;
-}
 
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
 // через truthy/fallback: 1.2x и 1.5x должны всегда вернуть 12 и 15 при ставке 10.
@@ -670,20 +656,20 @@ app.post('/api/plinko/drop', async (req, res) => {
   if (!tgUser) return res.status(401).json({ error: 'Нет авторизации' });
   const bet = Number(req.body?.bet);
   const count = Math.max(1, Math.min(10, Math.floor(Number(req.body?.count) || 1)));
+  const boardWidth = Math.max(200, Math.min(1000, Number(req.body?.boardWidth) || 300));
+  const boardHeight = Math.max(280, Math.min(700, Number(req.body?.boardHeight) || 360));
   if (!Number.isInteger(bet) || bet < PLINKO_MIN_BET) {
     return res.status(400).json({ error: `Минимальная ставка — ${PLINKO_MIN_BET} ⭐` });
   }
 
-  // Каждый шарик получает собственный bucket. Выплата рассчитывается строго
-  // по коэффициенту этого bucket, а не по позиции/коэффициентам соседнего слота.
-  // Весь пакет обрабатывается одной операцией, поэтому ставка и начисление
-  // не могут смешаться между шариками.
+  // Результат рождается из физического падения. Сервер и клиент используют
+  // один seed и одну модель, поэтому bucket — это фактическая конечная ячейка,
+  // а не заранее выбранный коэффициент для последующей анимации.
   const results = Array.from({ length: count }, () => {
-    const bucket = drawPlinkoBucket();
+    const physicsSeed = crypto.randomInt(0, 0x100000000);
+    const { bucket } = simulatePlinkoDrop(boardWidth, boardHeight, physicsSeed);
     const { multiplier, payout, coefficientTenths } = plinkoPayout(bet, bucket);
-    // Коэффициент и выплата передаются явно в целых десятых долях.
-    // Поэтому 5x при ставке 10 всегда означает 50, а не 5.
-    return { bucket, multiplier, coefficientTenths, payout };
+    return { bucket, multiplier, coefficientTenths, payout, physicsSeed };
   });
   const totalStake = bet * count;
   const totalPayout = results.reduce((sum, result) => sum + result.payout, 0);

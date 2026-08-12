@@ -1,3 +1,5 @@
+import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js';
+
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
 const headers = {'Content-Type':'application/json','x-telegram-init-data':tg?.initData || ''};
@@ -499,23 +501,6 @@ function initPlinko() {
   const BOTTOM_MARGIN = 50;
   const BALL_RADIUS = 7;
 
-  // Подобрано под размер канваса: шарик должен быстро и естественно долетать до нижнего ряда.
-  let gravity = 850;
-
-  // Столкновения.
-  const RESTITUTION = 0.28;       // мягкий, но заметный отскок
-  const TANGENT_KEEP = 0.94;      // почти полное скольжение по касательной
-  const SUBSTEPS = 16;            // мелкие шаги не дают шарику проскакивать колышки
-
-  // Слабое горизонтальное влияние задаёт только общий маршрут. Все изменения
-  // скорости и положения всё равно проходят через обычную физику столкновений.
-  const ROUTE_STRENGTH = 4.4;
-  const ROUTE_MAX_ACCELERATION = 520;
-  const AIR_DRAG = 0.18;
-  const MAX_SPEED = 1050;
-  const TRAY_FRICTION = 6.5;
-  const TRAY_STRENGTH = 18;
-
   const SPAWN_DELAY_JITTER = 0.10;
 
   let pegRadius = 3.5;
@@ -553,22 +538,12 @@ function initPlinko() {
     rowGap = (boardHeight - TOP_Y - BOTTOM_MARGIN) / ROWS;
     colGap = (boardWidth - PADDING_X * 2) / (ROWS + 1);
     pegRadius = Math.max(2.5, Math.min(3.5, colGap * 0.095));
-    gravity = 850;
   }
 
   // ---- геометрия ------------------------------------------------------
 
   function pegPositions() {
-    const positions = [];
-    for (let row = 0; row < ROWS; row += 1) {
-      const count = row + 3;
-      const width = (count - 1) * colGap;
-      const startX = boardWidth / 2 - width / 2;
-      for (let col = 0; col < count; col += 1) {
-        positions.push({ x: startX + col * colGap, y: TOP_Y + row * rowGap });
-      }
-    }
-    return positions;
+    return plinkoPegs(boardWidth, boardHeight);
   }
 
   // ---- отрисовка ------------------------------------------------------
@@ -640,18 +615,19 @@ function initPlinko() {
     drawBoard();
     for (const ball of balls) {
       ctx.save();
+      const radius = ball.radius || BALL_RADIUS;
       const impact = ball.impact || 0;
       ctx.translate(ball.x, ball.y);
       ctx.scale(1 + impact * 0.14, 1 - impact * 0.10);
       ctx.translate(-ball.x, -ball.y);
-      const grad = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 1, ball.x, ball.y, BALL_RADIUS + 1);
+      const grad = ctx.createRadialGradient(ball.x - radius * 0.28, ball.y - radius * 0.28, 1, ball.x, ball.y, radius + 1);
       grad.addColorStop(0, '#fff6c8');
       grad.addColorStop(0.45, '#ffd04a');
       grad.addColorStop(1, '#ff9d1f');
       ctx.fillStyle = grad;
       if (!ball.settled) { ctx.shadowColor = 'rgba(255,180,60,0.9)'; ctx.shadowBlur = 12; }
       ctx.beginPath();
-      ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+      ctx.arc(ball.x, ball.y, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -659,151 +635,30 @@ function initPlinko() {
 
   // =================================================================
   // ЯДРО ФИЗИКИ
-  // =================================================================
-
-  // Столкновение с одним колышком.
-  // Шарик получает упругий импульс по нормали и сохраняет скорость по касательной.
-  function resolvePeg(ball, peg, contactR) {
-    const dx = ball.x - peg.x;
-    const dy = ball.y - peg.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist >= contactR || dist < 1e-6) return false;
-
-    const nx = dx / dist;
-    const ny = dy / dist;
-    // Выталкивание из колышка.
-    ball.x = peg.x + nx * contactR;
-    ball.y = peg.y + ny * contactR;
-
-    const vn = ball.vx * nx + ball.vy * ny;
-    if (vn >= 0) return true; // уже удаляется
-
-    // Нормальная скорость меняется по коэффициенту восстановления, касательная
-    // почти сохраняется: так шарик естественно скользит по поверхности колышка.
-    const tx = -ny, ty = nx;
-    const vt = ball.vx * tx + ball.vy * ty;
-    ball.vx = tx * vt * TANGENT_KEEP - nx * Math.abs(vn) * RESTITUTION;
-    ball.vy = ty * vt * TANGENT_KEEP - ny * Math.abs(vn) * RESTITUTION;
-    ball.impact = Math.min(1, Math.abs(vn) / 360);
-    return true;
-  }
-
-  function settleBall(ball) {
-    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    ball.actualBucket = ball.bucket;
-    ball.y = bottomY;
-    ball.multiplier = Number(ball.multiplier);
-    ball.payout = Number(ball.payout);
-    ball.vx = 0;
-    ball.vy = 0;
-    ball.settled = true;
-  }
-
-  function updateBall(ball, dt) {
-    if (ball.settled) return;
-    if (ball.spawnDelay > 0) { ball.spawnDelay -= dt; ball.impact = 0; return; }
-
-    ball.elapsed += dt;
-    const targetX = (boardWidth / SLOT_COUNT) * (ball.bucket + 0.5);
-    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    const pegs = pegPositions();
-    const h = dt / SUBSTEPS;
-    ball.impact = Math.max(0, (ball.impact || 0) - dt * 5);
-
-    // В нижнем лотке шарик продолжает двигаться по полу до своего слота.
-    // Это плавное скольжение заменяет прежний финальный "прыжок" к центру.
-    if (ball.inTray) {
-      const distance = targetX - ball.x;
-      const trayAcceleration = Math.max(-260, Math.min(260, distance * TRAY_STRENGTH));
-      ball.vx += trayAcceleration * dt;
-      ball.vx *= Math.exp(-TRAY_FRICTION * dt);
-      ball.x += ball.vx * dt;
-      const slotWidth = boardWidth / SLOT_COUNT;
-      const captureDistance = Math.max(2, slotWidth * 0.30);
-      if (Math.abs(distance) <= captureDistance && Math.abs(ball.vx) < 24) {
-        settleBall(ball);
-      }
+  // Физика выполняется в общем модуле с сервером. Клиент не знает
+  // целевой слот заранее и не может искусственно направить шарик к коэффициенту.
+  function physicsUpdateBall(ball, dt) {
+    if (ball.spawnDelay > 0) {
+      ball.spawnDelay -= dt;
       return;
     }
-
-    const contactR = pegRadius + BALL_RADIUS;
-
-    for (let s = 0; s < SUBSTEPS; s += 1) {
-      ball.vy += gravity * h;
-
-      // Маршрут меняется постепенно по мере падения, поэтому шарик не получает
-      // резкого импульса к финальному коэффициенту.
-      const fallDistance = Math.max(1, bottomY - ball.spawnY);
-      const progress = Math.max(0, Math.min(1, (ball.y - ball.spawnY) / fallDistance));
-      const easedProgress = progress * progress * (3 - 2 * progress);
-      const routeTarget = ball.spawnX
-        + (targetX - ball.spawnX) * easedProgress
-        + ball.routeWobble * Math.sin(progress * Math.PI * 3) * (1 - progress);
-      const routeAcceleration = Math.max(
-        -ROUTE_MAX_ACCELERATION,
-        Math.min(ROUTE_MAX_ACCELERATION, (routeTarget - ball.x) * ROUTE_STRENGTH)
-      );
-      ball.vx += routeAcceleration * h;
-
-      // Сопротивление воздуха.
-      ball.vx *= Math.exp(-AIR_DRAG * h);
-
-      const speed = Math.hypot(ball.vx, ball.vy);
-      if (speed > MAX_SPEED) {
-        ball.vx *= MAX_SPEED / speed;
-        ball.vy *= MAX_SPEED / speed;
-      }
-
-      // Перемещение.
-      ball.x += ball.vx * h;
-      ball.y += ball.vy * h;
-
-      // Стены.
-      if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.25; }
-      if (ball.x > boardWidth - BALL_RADIUS) { ball.x = boardWidth - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.25; }
-
-      // Столкновения с колышками.
-      for (const peg of pegs) resolvePeg(ball, peg, contactR);
-    }
-
-    if (ball.y >= bottomY) {
-      ball.y = bottomY;
-      ball.vy = 0;
-      ball.inTray = true;
+    stepPlinkoBall(ball, ball.physicsWidth || boardWidth, ball.physicsHeight || boardHeight, dt);
+    if (ball.settled) {
+      ball.bucket = ball.actualBucket;
+      ball.multiplier = PAYOUT_VALUES[ball.bucket];
     }
   }
 
-  function dropBall(bucket, multiplier, payout) {
-    const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    // Спавн всегда находится только в диапазоне трёх верхних колышков.
-    // Bucket не влияет на стартовую позицию: результат определяется серверной
-    // вероятностью, а шарик проходит к нему непрерывную траекторию.
-    const firstPegLeft = boardWidth / 2 - colGap;
-    const firstPegRight = boardWidth / 2 + colGap;
-    const spawnX = firstPegLeft + BALL_RADIUS
-      + Math.random() * Math.max(1, firstPegRight - firstPegLeft - BALL_RADIUS * 2);
-    const spawnOffset = (spawnX - boardWidth / 2) / Math.max(1, colGap);
-    const startVx = spawnOffset * 12 + (Math.random() - 0.5) * 34;
-
-    const ball = {
-      x: spawnX, y: TOP_Y - 16,
-      vx: startVx, vy: 0,
-      spawnX,
-      spawnY: TOP_Y - 16,
-      routeWobble: (Math.random() - 0.5) * colGap * 0.12,
-      elapsed: 0,
-      spawnDelay: Math.random() * SPAWN_DELAY_JITTER,
-      settled: false,
-      bucket: bucketIndex,
-      multiplier,
-      payout: Number(payout),
-      inTray: false,
-      impact: 0
-    };
+  function physicsDropBall(result, physicsWidth, physicsHeight) {
+    const ball = createPlinkoBall(physicsWidth, physicsHeight, result.physicsSeed);
+    ball.physicsWidth = physicsWidth;
+    ball.physicsHeight = physicsHeight;
+    ball.spawnDelay = Math.random() * SPAWN_DELAY_JITTER;
+    ball.multiplier = Number(result.multiplier);
+    ball.payout = Number(result.payout);
     balls.push(ball);
     return ball;
   }
-
   // ============================================================
   // ANIMATION LOOP
   // ============================================================
@@ -813,7 +668,7 @@ function initPlinko() {
     lastTime = time;
     physicsAccumulator = Math.min(physicsAccumulator + dt, 0.12);
     while (physicsAccumulator >= PHYSICS_STEP) {
-      for (const ball of balls) { if (!ball.settled) updateBall(ball, PHYSICS_STEP); }
+      for (const ball of balls) { if (!ball.settled) physicsUpdateBall(ball, PHYSICS_STEP); }
       physicsAccumulator -= PHYSICS_STEP;
     }
     renderFrame();
@@ -871,9 +726,11 @@ function initPlinko() {
     renderFrame();
     const ballsToDrop = currentBalls;
     try {
+      const physicsWidth = boardWidth;
+      const physicsHeight = boardHeight;
       const data = await request('/api/plinko/drop', {
         method: 'POST',
-        body: JSON.stringify({ bet, count: ballsToDrop })
+        body: JSON.stringify({ bet, count: ballsToDrop, boardWidth: physicsWidth, boardHeight: physicsHeight })
       });
       if (!Array.isArray(data.results) || data.results.length !== ballsToDrop
         || !Number.isFinite(Number(data.totalPayout))) {
@@ -884,7 +741,9 @@ function initPlinko() {
         const multiplier = Number(result.multiplier);
         const coefficientTenths = Number(result.coefficientTenths);
         const payout = Number(result.payout);
-        if (!Number.isInteger(tenths) || coefficientTenths !== tenths
+        const physicsSeed = Number(result.physicsSeed);
+        if (!Number.isInteger(tenths) || !Number.isInteger(physicsSeed) || physicsSeed < 0
+          || coefficientTenths !== tenths
           || multiplier !== tenths / 10
           || payout !== Math.floor(bet * coefficientTenths / 10)) {
           throw Error('Сервер вернул несоответствующий коэффициент Плинко');
@@ -901,7 +760,7 @@ function initPlinko() {
       animationId = requestAnimationFrame(animate);
       for (const [index, result] of data.results.entries()) {
         if (index > 0) await new Promise(resolve => setTimeout(resolve, 450));
-        dropBall(result.bucket, result.multiplier, result.payout);
+        physicsDropBall(result, physicsWidth, physicsHeight);
       }
       requestsDone = true;
     } catch (error) {
@@ -923,7 +782,11 @@ function initPlinko() {
   ballsButtons.forEach(btn => btn.addEventListener('click', () => {
     if (!dropping) setBallsCount(btn.dataset.balls);
   }));
-  window.addEventListener('resize', () => { resizeCanvas(); drawBoard(); });
+  window.addEventListener('resize', () => {
+    // Во время броска размеры поля являются частью общего физического
+    // сценария сервера и клиента. Не меняем их посреди симуляции.
+    if (!dropping) { resizeCanvas(); drawBoard(); }
+  });
   resizeCanvas();
   drawBoard();
   updateDropButton();
