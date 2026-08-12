@@ -694,30 +694,6 @@ function initPlinko() {
     return pegRadius + BALL_RADIUS;
   }
 
-  // Начать новый участок полёта от текущей позиции шарика к цели.
-  // targetIsPeg: true — цель это точка, шарик ударится о её поверхность и
-  // отскочит; false — финальный участок в слот (столкновений нет).
-  function beginSegment(ball, targetX, targetY, vy0, targetIsPeg) {
-    ball.px = ball.x;
-    ball.py = ball.y;
-    ball.tx = targetX;
-    ball.ty = targetY;
-    ball.targetIsPeg = targetIsPeg;
-    // После удара о точку шарик уходит ТОЛЬКО вниз-вбок: подъём обратно вверх
-    // вернул бы его в жёсткую зону той же точки (она перекрывается под ней).
-    ball.vy0 = vy0 ?? (6 + Math.random() * 16);
-    const dy = Math.max(1, targetY - ball.py);
-    // Время полёта из уравнения dy = vy0*T + g*T^2/2 (T > 0).
-    ball.segT = (-ball.vy0 + Math.sqrt(ball.vy0 * ball.vy0 + 2 * PLINKO_GRAVITY * dy)) / PLINKO_GRAVITY;
-    ball.vx = (targetX - ball.px) / ball.segT;
-    ball.segTime = 0;
-  }
-
-  // Получить боковую точку удара о точку-центр (px,py) со стороны прилёта.
-  // Возвращает цель на окружности точки. side: -1 — подходить слева, 1 — справа.
-  function pegSidePoint(px, py, side) {
-    return { x: px + side * pegContactRadius(), y: py };
-  }
 
   function settleBall(ball) {
     const slotWidth = boardWidth / SLOT_COUNT;
@@ -732,180 +708,143 @@ function initPlinko() {
     ball.settled = true;
   }
 
-  // Первое пересечение отрезка (ax,ay)-(bx,by) с окружностью (cx,cy,r).
-  // Возвращает t из [0, 1] в точке касания или -1, если пересечения нет.
-  function firstSegmentCircleHit(ax, ay, bx, by, cx, cy, r) {
-    const dx = bx - ax;
-    const dy = by - ay;
-    const fx = ax - cx;
-    const fy = ay - cy;
-    const a = dx * dx + dy * dy;
-    if (a < 1e-9) return -1;
-    const b = 2 * (fx * dx + fy * dy);
-    const c = fx * fx + fy * fy - r * r;
-    const disc = b * b - 4 * a * c;
-    if (disc < 0) return -1;
-    const t1 = (-b - Math.sqrt(disc)) / (2 * a);
-    if (t1 >= 0 && t1 <= 1) return t1;
-    return -1;
+
+  // Реалистичная физика падения: шарик разгоняется под гравитацией, мягко
+  // отскакивает от точек с потерей энергии и плавно подруливает к нужному
+  // слоту. Результат (коэффициент) задаёт сервер, но движение естественное
+  // и непрерывное — без резких телепортов к какому-либо коэффициенту.
+  const SUBSTEPS = 6;          // подшаги для устойчивых столкновений
+  const RESTITUTION = 0.45;    // потеря энергии при ударе о точку
+  const STEER_STRENGTH = 8;    // слабое притяжение к слоту среди точек
+  const STEER_BELOW_PEGS = 30; // сильное — ниже последнего ряда точек
+  const STEER_RESCUE = 60;     // аварийное — при заклинивании между точками
+  const MAX_SPEED = 520;       // ограничение скорости, чтобы не "проскакивать"
+  const STILL_LIMIT = 1.0;     // секунд без продвижения вниз → "заклинило"
+
+  // Эффективный радиус столкновения: когда шарик заклинил между точками,
+  // временно "сжимаем" коллизию, чтобы он мог просочиться сквозь зазор и
+  // продолжить падение (гарантирует, что анимация никогда не зависнет).
+  function contactRadius(ball) {
+    return ball.wedged ? BALL_RADIUS * 0.4 : pegContactRadius();
   }
 
-  // Ряд точки, в которую шарик только что ударился.
-  function pegRowIndex(pegY) {
-    return Math.round((pegY - TOP_Y) / rowGap);
-  }
-
-  // Точка на дуге переката по поверхности точки.
-  function rollPoint(pegX, pegY, angle) {
-    return { x: pegX + Math.cos(angle) * pegContactRadius(), y: pegY + Math.sin(angle) * pegContactRadius() };
-  }
-
-  // Плавный перекат по поверхности от текущей точки касания к целевому углу.
-  function beginRoll(ball, targetAngle, onDone) {
-    const curA = Math.atan2(ball.y - ball.pegY, ball.x - ball.pegX);
-    let delta = targetAngle - curA;
-    while (delta > Math.PI) delta -= 2 * Math.PI;
-    while (delta < -Math.PI) delta += 2 * Math.PI;
-    ball.rollA0 = curA;
-    ball.rollA1 = curA + delta;
-    ball.rollT = 0;
-    ball.phase = 'roll';
-    ball.onRollDone = onDone;
-  }
-
-  // Плавный удар о точку: вместо резкого телепорта набок шарик ПЕРЕКАТЫВАЕТСЯ
-  // по дуге поверхности точки к её боку, затем летит к следующей цели. Так
-  // движение остаётся непрерывным, а шарик никогда не входит внутрь точки.
-  function onPegHit(ball, pegX, pegY) {
-    playTone(520 + Math.random() * 260, 0.03, 0.02);
-    const rows = pegsByRow();
-    const slotWidth = boardWidth / SLOT_COUNT;
-    const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    const targetSlotX = slotWidth * (ball.bucket + 0.5);
-    const rowIndex = pegRowIndex(pegY);
-    ball.pegX = pegX;
-    ball.pegY = pegY;
-    if (rowIndex >= ROWS - 1) {
-      // Последний ряд: перекат к боку точки, затем вертикальный спуск в слот.
-      const dirSign = targetSlotX >= pegX ? 1 : -1;
-      beginRoll(ball, dirSign > 0 ? 0 : Math.PI, () => {
-        ball.x = pegX + dirSign * pegContactRadius();
-        ball.y = pegY;
-        ball.finalStage = 1;
-        beginSegment(ball, ball.x, bottomY - 28, 0, false);
-      });
-      return;
+  function updateStuckGuard(ball, dt, lastRowY) {
+    if (ball.y > (ball.lowestY ?? ball.y) + 0.5) {
+      ball.lowestY = ball.y;
+      ball.stillTime = 0;
+      ball.wedged = false;
+    } else {
+      ball.stillTime = (ball.stillTime || 0) + dt;
     }
-    // Иначе выбираем точку следующего ряда (как в рабочей модели).
-    const nextRow = rows[rowIndex + 1];
-    const error = targetSlotX - pegX;
-    const distanceInLanes = Math.max(-1, Math.min(1, error / colGap));
-    const pToTarget = 0.5 + 0.4 * Math.abs(distanceInLanes);
-    const goRight = error > 0;
-    let side;
-    if (Math.random() < pToTarget) side = goRight ? 1 : -1;
-    else side = goRight ? -1 : 1;
-    const lookX = pegX + side * colGap / 2;
-    let best = nextRow[0];
-    let bestDistance = Infinity;
-    for (const point of nextRow) {
-      const distance = Math.abs(point.x - lookX);
-      if (distance < bestDistance) { bestDistance = distance; best = point; }
-    }
-    const dirSign = best.x >= pegX ? 1 : -1;
-    beginRoll(ball, dirSign > 0 ? 0 : Math.PI, () => {
-      ball.x = pegX + dirSign * pegContactRadius();
-      ball.y = pegY;
-      beginSegment(ball, best.x, best.y, undefined, true);
-    });
+    if (ball.stillTime > STILL_LIMIT) ball.wedged = true;
+    // Если всё же просочился ниже последнего ряда точек — восстанавливаем
+    // обычную коллизию (там точек уже нет, так что это безопасно).
+    if (ball.wedged && ball.y > lastRowY) ball.wedged = false;
   }
 
-  function updateBall1(ball, dt) {
+  function applyBallPhysics(ball, dt) {
     if (ball.settled) return;
-    if (ball.phase === 'roll') {
-      ball.rollT += dt * 6;
-      const t = Math.min(1, ball.rollT);
-      const angle = ball.rollA0 + (ball.rollA1 - ball.rollA0) * t;
-      const p = rollPoint(ball.pegX, ball.pegY, angle);
-      ball.x = p.x;
-      ball.y = p.y;
-      if (t >= 1) { ball.phase = 'flight'; ball.onRollDone(); }
-      return;
-    }
-    const t0 = ball.segTime;
-    const t1 = ball.segTime + dt;
-    ball.segTime = t1;
-    ball.vy = ball.vy0 + PLINKO_GRAVITY * t1;
-    ball.x = ball.px + ball.vx * t1;
-    ball.y = ball.py + ball.vy0 * t1 + 0.5 * PLINKO_GRAVITY * t1 * t1;
-
+    const slotWidth = boardWidth / SLOT_COUNT;
+    const targetX = slotWidth * (ball.bucket + 0.5);
+    const pegs = pegPositions();
+    const lastRowY = TOP_Y + (ROWS - 1) * rowGap;
     const bottomY = boardHeight - BOTTOM_MARGIN + 6;
-    if (!ball.targetIsPeg) {
-      // Финальный спуск в свой слот: вертикальная траектория от бока последней
-      // точки не пересекает ни свою точку, ни соседние — отскоков не появляется.
-      if (ball.finalStage === 1 && ball.y >= ball.ty) {
-        // Конец вертикального участка: плавный "докат" по дну к слоту.
-        const slotWidth = boardWidth / SLOT_COUNT;
-        const targetSlotX = slotWidth * (ball.bucket + 0.5);
-        ball.finalStage = 2;
-        beginSegment(ball, targetSlotX, bottomY, 0, false);
-        return;
-      }
-      if (ball.y >= bottomY) {
+
+    // Плавный "докат" по дну слота: шарик уже в зоне ячейки, тянется к её
+    // центру и фиксируется — без резкого скачка к коэффициенту.
+    if (ball.settling) {
+      ball.x += (targetX - ball.x) * Math.min(1, 10 * dt);
+      ball.vx *= 0.7;
+      ball.vy = 0;
+      if (Math.abs(ball.x - targetX) < 1.2) {
+        ball.x = targetX;
         settleBall(ball);
       }
       return;
     }
 
-    // Жёсткий контакт с ЦЕЛЕВОЙ точкой.
-    const px0 = ball.px + ball.vx * t0;
-    const py0 = ball.py + ball.vy0 * t0 + 0.5 * PLINKO_GRAVITY * t0 * t0;
-    const contact = firstSegmentCircleHit(px0, py0, ball.x, ball.y, ball.tx, ball.ty, pegContactRadius());
-    if (contact >= 0) {
-      ball.bounces = (ball.bounces || 0) + 1;
-      // Шарик останавливается ровно на поверхности (точка касания), а затем
-      // плавно перекатывается по дуге к боку — без телепорта и без провалов.
-      ball.x = px0 + (ball.x - px0) * contact;
-      ball.y = py0 + (ball.y - py0) * contact;
-      onPegHit(ball, ball.tx, ball.ty);
+    updateStuckGuard(ball, dt, lastRowY);
+    const R = contactRadius(ball);
+    const h = dt / SUBSTEPS;
+    for (let s = 0; s < SUBSTEPS; s += 1) {
+      // Гравитация.
+      ball.vy += PLINKO_GRAVITY * h;
+      // Мягкое руление к целевому слоту: слабое в зоне точек, заметное ниже
+      // последнего ряда, где точек уже нет, и аварийное при заклинивании.
+      const steer = ball.wedged ? STEER_RESCUE
+        : ball.y > lastRowY ? STEER_BELOW_PEGS : STEER_STRENGTH;
+      ball.vx += (targetX - ball.x) * steer * h;
+      // Лёгкое затухание горизонтали — шарик не разгоняется вбок бесконечно.
+      ball.vx *= (1 - 1.4 * h);
+      // Ограничиваем скорость, чтобы за подшаг не "проскочить" сквозь точку.
+      const speed = Math.hypot(ball.vx, ball.vy);
+      if (speed > MAX_SPEED) { ball.vx *= MAX_SPEED / speed; ball.vy *= MAX_SPEED / speed; }
+      // Интегрируем позицию.
+      ball.x += ball.vx * h;
+      ball.y += ball.vy * h;
+      // Стенки поля: упруго отражаем при вылете за границы.
+      if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.5; }
+      if (ball.x > boardWidth - BALL_RADIUS) { ball.x = boardWidth - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.5; }
+      // Столкновения с точками: выталкиваем на поверхность и отражаем скорость.
+      for (const peg of pegs) {
+        const dx = ball.x - peg.x;
+        const dy = ball.y - peg.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < R && dist > 1e-6) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          ball.x = peg.x + nx * R;
+          ball.y = peg.y + ny * R;
+          const vn = ball.vx * nx + ball.vy * ny;
+          if (vn < 0) {
+            ball.vx -= (1 + RESTITUTION) * vn * nx;
+            ball.vy -= (1 + RESTITUTION) * vn * ny;
+            // Скатывание с вершины точки: если шарик почти сверху, направляем
+            // его вбок, чтобы он не зависал в неустойчивом равновесии на острие.
+            if (ny < -0.6) {
+              const dir = Math.abs(dx) > 1e-3 ? Math.sign(dx) : (Math.random() < 0.5 ? -1 : 1);
+              ball.vx += dir * 12;
+            }
+            // Небольшое случайное отклонение — траектория выглядит живой.
+            ball.vx += (Math.random() * 2 - 1) * 6;
+            ball.bounces = (ball.bounces || 0) + 1;
+            playTone(520 + Math.random() * 260, 0.03, 0.02);
+          }
+        }
+      }
+    }
+    // Шарик достиг зоны слотов — переходим к плавному докату по дну.
+    if (ball.y >= bottomY) {
+      ball.y = bottomY;
+      ball.vy = 0;
+      ball.settling = true;
     }
   }
 
   function updateBall(ball, dt) {
-    updateBall1(ball, dt);
+    applyBallPhysics(ball, dt);
   }
 
   function dropBall(bucket, multiplier, payout) {
     const bucketIndex = Math.max(0, Math.min(SLOT_COUNT - 1, Math.floor(Number(bucket))));
-    // Стартуем над случайной точкой первого ряда — первый удар гарантирован.
-    const rows = pegsByRow();
-    const firstRow = rows[0];
-    const startPeg = firstRow[Math.floor(Math.random() * firstRow.length)];
-    const startX = startPeg.x + (Math.random() * 6 - 3);
-
+    // Старт чуть выше верхнего ряда со случайным смещением: первый удар о
+    // точку гарантирован, а начальная траектория каждый раз разная.
+    const startX = boardWidth / 2 + (Math.random() * 2 - 1) * colGap * 0.5;
     const ball = {
       x: startX,
       y: TOP_Y - 16,
-      px: startX,
-      py: TOP_Y - 16,
-      tx: 0, ty: 0,
-      vx: 0, vy: 0, vy0: 0,
-      segTime: 0, segT: 1,
+      vx: (Math.random() * 2 - 1) * 24,
+      vy: 0,
       bounces: 0,
-      finalStage: 0,
+      lowestY: TOP_Y - 16,
+      stillTime: 0,
+      wedged: false,
+      settling: false,
       settled: false,
       bucket: bucketIndex,
       multiplier,
       payout: Number(payout)
     };
-    // Первый участок: от старта вниз на точку первого ряда.
-    let best = firstRow[0];
-    let bestDistance = Infinity;
-    for (const point of firstRow) {
-      const distance = Math.abs(point.x - startX);
-      if (distance < bestDistance) { bestDistance = distance; best = point; }
-    }
-    beginSegment(ball, best.x, best.y, 0, true);
     balls.push(ball);
     return ball;
   }
