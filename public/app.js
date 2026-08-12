@@ -1,4 +1,4 @@
-import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js';
+import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=120-20260812';
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();

@@ -5,11 +5,11 @@ const TOP_Y = 22;
 const BOTTOM_MARGIN = 50;
 const BALL_RADIUS = 7;
 const FALL_SPEED = 120;
-const MIN_DOWNWARD_SPEED = 220;
+const MIN_DOWNWARD_SPEED = 60;
 const RESTITUTION = 0.32;
 const TANGENT_KEEP = 0.72;
 const SUBSTEPS = 16;
-const COLLISION_PASSES = 3;
+const COLLISION_PASSES = 2;
 const MAX_STEPS = 2400;
 
 function makeRng(seed) {
@@ -104,6 +104,7 @@ function resolvePeg(ball, peg, contactRadius) {
   ball.vy = ty * tangentVelocity * TANGENT_KEEP - ny * Math.abs(normalVelocity) * RESTITUTION;
   ball.bounces += 1;
   ball.impact = Math.min(1, Math.abs(normalVelocity) / 360);
+  ball.lastPeg = peg;
 }
 
 function keepFallSpeed(ball) {
@@ -114,10 +115,10 @@ function keepFallSpeed(ball) {
   ball.vy = vy * FALL_SPEED / speed;
 }
 
-export function stepPlinkoBall(ball, width, height, dt) {
+export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
   if (ball.settled) return;
-  const metrics = plinkoMetrics(width, height);
-  const pegs = plinkoPegs(width, height);
+  const metrics = prepared?.metrics || plinkoMetrics(width, height);
+  const pegs = prepared?.pegs || plinkoPegs(width, height);
   const contactRadius = metrics.pegRadius + ball.radius;
   const bottomY = metrics.boardHeight - BOTTOM_MARGIN + 6;
   const h = Math.min(0.05, Math.max(0, Number(dt) || 0)) / SUBSTEPS;
@@ -125,6 +126,11 @@ export function stepPlinkoBall(ball, width, height, dt) {
 
   for (let substep = 0; substep < SUBSTEPS; substep += 1) {
     keepFallSpeed(ball);
+
+    if (ball.lastPeg) {
+      const distanceFromLastPeg = Math.hypot(ball.x - ball.lastPeg.x, ball.y - ball.lastPeg.y);
+      if (distanceFromLastPeg >= contactRadius * 1.08) ball.lastPeg = null;
+    }
 
     ball.x += ball.vx * h;
     ball.y += ball.vy * h;
@@ -140,7 +146,10 @@ export function stepPlinkoBall(ball, width, height, dt) {
     // Несколько проходов нужны, когда шарик касается двух соседних штырьков
     // одновременно: так коррекция контакта не возвращает его в предыдущий.
     for (let pass = 0; pass < COLLISION_PASSES; pass += 1) {
-      for (const peg of pegs) resolvePeg(ball, peg, contactRadius);
+      for (const peg of pegs) {
+        if (peg === ball.lastPeg) continue;
+        resolvePeg(ball, peg, contactRadius);
+      }
     }
     keepFallSpeed(ball);
   }
@@ -156,11 +165,12 @@ export function stepPlinkoBall(ball, width, height, dt) {
 
 export function simulatePlinkoDrop(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
+  const prepared = { metrics, pegs: plinkoPegs(metrics.boardWidth, metrics.boardHeight) };
   const ball = createPlinkoBall(metrics.boardWidth, metrics.boardHeight, seed);
   const dt = 1 / 120;
   let steps = 0;
   while (!ball.settled && steps < MAX_STEPS) {
-    stepPlinkoBall(ball, metrics.boardWidth, metrics.boardHeight, dt);
+    stepPlinkoBall(ball, metrics.boardWidth, metrics.boardHeight, dt, prepared);
     steps += 1;
   }
   if (!ball.settled) throw new Error('Шарик Плинко не завершил физическое падение');
