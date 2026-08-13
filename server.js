@@ -658,14 +658,74 @@ function drawPlinkoTarget() {
   return PLINKO_PROBABILITIES.length - 1;
 }
 
-function createWeightedPhysicalDrop(boardWidth, boardHeight) {
-  const target = drawPlinkoTarget();
+// Кэш физических seed по размеру доски: найденные seed запоминаются, поэтому
+// повторные запросы к тем же слотам отвечают мгновенно. Пул предзаполняется
+// в фоне порциями, чтобы даже первый бросок не ждал перебора редких слотов.
+const physicsSeedPools = new Map(); // key `${w}x${h}` -> массив из 11 массивов seed
+const SEED_POOL_TARGET = 14;        // столько seed держим на каждый слот
+const SEED_POOL_ACTIVE = new Map(); // key -> идёт ли фоновое наполнение
+
+function ensureSeedPool(boardWidth, boardHeight) {
+  const key = `${boardWidth}x${boardHeight}`;
+  let pool = physicsSeedPools.get(key);
+  if (!pool) {
+    pool = Array.from({ length: 11 }, () => []);
+    physicsSeedPools.set(key, pool);
+  }
+  return pool;
+}
+
+// Наполняет пул порциями по chunkSize симуляций, возвращая управление циклу
+// событий между порциями, чтобы фоновый расчёт не блокировал запросы.
+async function refillSeedPool(boardWidth, boardHeight, chunkSize = 25) {
+  const key = `${boardWidth}x${boardHeight}`;
+  if (SEED_POOL_ACTIVE.get(key)) return;
+  SEED_POOL_ACTIVE.set(key, true);
+  try {
+    const pool = ensureSeedPool(boardWidth, boardHeight);
+    let seed = crypto.randomInt(0, 0x100000000) >>> 0;
+    let guard = 0;
+    while (pool.some(arr => arr.length < SEED_POOL_TARGET) && guard < 400) {
+      for (let i = 0; i < chunkSize; i += 1) {
+        seed = (seed + 0x9E3779B9) | 0;
+        const simulation = simulatePlinkoDrop(boardWidth, boardHeight, seed >>> 0);
+        if (pool[simulation.bucket].length < SEED_POOL_TARGET) {
+          pool[simulation.bucket].push(seed >>> 0);
+        }
+      }
+      guard += 1;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  } catch (error) {
+    console.error('Не удалось наполнить пул физических seed:', error.message);
+  } finally {
+    SEED_POOL_ACTIVE.set(key, false);
+  }
+}
+
+// Возвращает seed, чья физическая симуляция заканчивается в нужном слоте.
+// Сначала берёт готовый seed из пула (мгновенно), иначе — перебор (fallback),
+// а найденный seed кэширует для следующих запросов.
+function physicsSeedForBucket(boardWidth, boardHeight, bucket) {
+  const pool = ensureSeedPool(boardWidth, boardHeight);
+  if (pool[bucket].length) return pool[bucket].pop();
   for (let attempt = 0; attempt < 2000; attempt += 1) {
     const physicsSeed = crypto.randomInt(0, 0x100000000);
     const simulation = simulatePlinkoDrop(boardWidth, boardHeight, physicsSeed);
-    if (simulation.bucket === target) return { physicsSeed, bucket: simulation.bucket };
+    if (simulation.bucket === bucket) {
+      if (pool[bucket].length < SEED_POOL_TARGET) pool[bucket].push(physicsSeed);
+      return physicsSeed;
+    }
   }
   throw new Error('Не удалось подобрать физический старт Плинко');
+}
+
+function createWeightedPhysicalDrop(boardWidth, boardHeight) {
+  const target = drawPlinkoTarget();
+  const physicsSeed = physicsSeedForBucket(boardWidth, boardHeight, target);
+  // Запускаем фоновое наполнение пула для этого размера доски.
+  refillSeedPool(boardWidth, boardHeight);
+  return { physicsSeed, bucket: target };
 }
 
 // Все коэффициенты Плинко хранятся в одном месте. Не используем проверку
@@ -688,6 +748,11 @@ app.post('/api/plinko/drop', async (req, res) => {
   // Результат рождается из физического падения. Сервер и клиент используют
   // один seed и одну модель, поэтому bucket — это фактическая конечная ячейка,
   // а не заранее выбранный коэффициент для последующей анимации.
+  // Подготовку профиля (БД) начинаем сразу, параллельно с расчётом физики:
+  // CPU-перебор seed происходит, пока идёт чтение из базы.
+  const profilePreparation = getProfile(tgUser).catch(error => {
+    throw error;
+  });
   const results = Array.from({ length: count }, () => {
     const { physicsSeed, bucket } = createWeightedPhysicalDrop(boardWidth, boardHeight);
     const { multiplier, coefficientTenths } = plinkoPayout(bet, bucket);
@@ -710,7 +775,7 @@ app.post('/api/plinko/drop', async (req, res) => {
   if (!Number.isFinite(totalPayout)) throw new Error('Некорректная выплата Плинко');
   let profile;
   try {
-    await getProfile(tgUser); // создаёт профиль и выполняет миграции
+    await profilePreparation; // создаёт профиль и выполняет миграции
     const userId = String(tgUser.id);
     if (databaseMode === 'postgres') {
       // Нельзя делать getProfile → изменение → saveUser: два одновременных
@@ -1161,10 +1226,21 @@ if (botToken && !isVercel) {
 }
 
 // Vercel использует экспортированный handler, а локально запускаем обычный HTTP-сервер.
+// Прогрев физики Плинко при старте: JIT-компилирует симуляции и начинает
+// предзаполнять пул seed для стандартной доски, чтобы первый бросок игрока
+// не ждал перебора редких слотов.
+try {
+  const warmUpSeed = 1;
+  for (let i = 0; i < 120; i += 1) {
+    simulatePlinkoDrop(300, 360, Math.imul(warmUpSeed + i, 2654435761) >>> 0);
+  }
+  refillSeedPool(300, 360);
+} catch (error) {
+  console.error('Не удалось прогреть физику Плинко:', error.message);
+}
+
 if (!isVercel) {
   const server = app.listen(port, () => console.log(`Mini App: http://localhost:${port}`));
-  // Не завершаем процесс необработанным исключением: обычно это означает,
-  // что предыдущий экземпляр приложения ещё занимает порт.
   server.on('error', error => {
     if (error.code === 'EADDRINUSE') {
       console.error(`Порт ${port} уже занят. Остановите предыдущий экземпляр (Ctrl+C) или запустите приложение на другом порту: PORT=3001 npm start`);

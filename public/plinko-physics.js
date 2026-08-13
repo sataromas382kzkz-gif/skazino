@@ -72,6 +72,28 @@ export function plinkoPegs(width, height) {
   return positions;
 }
 
+// Группирует колышки по рядам: шарик может столкнуться только с ближайшими
+// рядами, поэтому проверка всех 52 колышков каждый шаг не нужна. Группировка
+// детерминирована и одинакова на сервере и клиенте.
+export function plinkoPegRows(width, height) {
+  const metrics = plinkoMetrics(width, height);
+  const rows = [];
+  for (let row = 0; row < ROWS; row += 1) {
+    const count = row + 3;
+    const rowWidth = (count - 1) * metrics.colGap;
+    const startX = metrics.boardWidth / 2 - rowWidth / 2;
+    const rowPegs = [];
+    for (let col = 0; col < count; col += 1) {
+      rowPegs.push({
+        x: startX + col * metrics.colGap,
+        y: TOP_Y + row * metrics.rowGap
+      });
+    }
+    rows.push(rowPegs);
+  }
+  return rows;
+}
+
 export function plinkoSlotFromX(x, width) {
   const boardWidth = plinkoMetrics(width, 360).boardWidth;
   const slotWidth = boardWidth / SLOT_COUNT;
@@ -81,10 +103,13 @@ export function plinkoSlotFromX(x, width) {
 export function createPlinkoBall(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
   const rng = makeRng(seed);
-  const firstRowLeftPeg = metrics.boardWidth / 2 - metrics.colGap;
-  const firstRowRightPeg = metrics.boardWidth / 2 + metrics.colGap;
-  const spawnMinX = firstRowLeftPeg + metrics.ballRadius;
-  const spawnMaxX = firstRowRightPeg - metrics.ballRadius;
+  // Широкий спавн по верхней части доски: шарик падает через первые
+  // колышки из разных точек, поэтому и крайние слоты (0.2x) достижимы.
+  // Это не меняет результат симуляции для уже выбранного seed, а лишь
+  // ускоряет подбор seed под нужный слот (rejection sampling).
+  const halfSpan = 2 * metrics.colGap;
+  const spawnMinX = metrics.boardWidth / 2 - halfSpan + metrics.ballRadius;
+  const spawnMaxX = metrics.boardWidth / 2 + halfSpan - metrics.ballRadius;
   const spawnX = spawnMinX + rng() * Math.max(1, spawnMaxX - spawnMinX);
 
   return {
@@ -181,7 +206,7 @@ function bounceOffPeg(ball, peg, contactRadius) {
 export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
   if (ball.settled) return;
   const metrics = prepared?.metrics || plinkoMetrics(width, height);
-  const pegs = prepared?.pegs || plinkoPegs(width, height);
+  const pegRows = prepared?.pegRows || plinkoPegRows(width, height);
   const contactRadius = metrics.pegRadius + ball.radius;
   const bottomY = metrics.boardHeight - BOTTOM_MARGIN + 6;
   const h = Math.min(0.05, Math.max(0, Number(dt) || 0)) / SUBSTEPS;
@@ -221,21 +246,27 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
       else slideOffPeg(ball, ball.lastPeg, contactRadius);
     }
 
-    // ---- колышки ----
-    for (const peg of pegs) {
-      const dx = ball.x - peg.x;
-      const dy = ball.y - peg.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist >= contactRadius) continue;
-      // Выталкиваем из колышка.
-      const nx = dist < 1e-6 ? 1 : dx / dist;
-      const ny = dist < 1e-6 ? 0 : dy / dist;
-      ball.x = peg.x + nx * contactRadius;
-      ball.y = peg.y + ny * contactRadius;
-      if (isSamePeg(peg, ball.lastPeg)) {
-        slideOffPeg(ball, peg, contactRadius);
-      } else {
-        bounceOffPeg(ball, peg, contactRadius);
+    // ---- колышки: проверяем только ближайшие ряды ----
+    // Шарик за один подшаг проходит < 1px, поэтому кандидаты — ряды,
+    // чьи y-координаты лежат в пределах contactRadius + rowGap от шарика.
+    const minRow = Math.max(0, Math.floor((ball.y - contactRadius - metrics.rowGap - TOP_Y) / metrics.rowGap));
+    const maxRow = Math.min(ROWS - 1, Math.ceil((ball.y + contactRadius + metrics.rowGap - TOP_Y) / metrics.rowGap));
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (const peg of pegRows[row]) {
+        const dx = ball.x - peg.x;
+        const dy = ball.y - peg.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= contactRadius) continue;
+        // Выталкиваем из колышка.
+        const nx = dist < 1e-6 ? 1 : dx / dist;
+        const ny = dist < 1e-6 ? 0 : dy / dist;
+        ball.x = peg.x + nx * contactRadius;
+        ball.y = peg.y + ny * contactRadius;
+        if (isSamePeg(peg, ball.lastPeg)) {
+          slideOffPeg(ball, peg, contactRadius);
+        } else {
+          bounceOffPeg(ball, peg, contactRadius);
+        }
       }
     }
   }
@@ -251,7 +282,11 @@ export function stepPlinkoBall(ball, width, height, dt, prepared = null) {
 
 export function simulatePlinkoDrop(width, height, seed) {
   const metrics = plinkoMetrics(width, height);
-  const prepared = { metrics, pegs: plinkoPegs(metrics.boardWidth, metrics.boardHeight) };
+  const prepared = {
+    metrics,
+    pegs: plinkoPegs(metrics.boardWidth, metrics.boardHeight),
+    pegRows: plinkoPegRows(metrics.boardWidth, metrics.boardHeight)
+  };
   const ball = createPlinkoBall(metrics.boardWidth, metrics.boardHeight, seed);
   let steps = 0;
   while (!ball.settled && steps < MAX_STEPS) {

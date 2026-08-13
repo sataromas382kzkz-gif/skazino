@@ -1,4 +1,4 @@
-import { createPlinkoBall, plinkoPegs, stepPlinkoBall } from './plinko-physics.js?v=physics-v12-20260812';
+import { createPlinkoBall, plinkoPegs, plinkoPegRows, plinkoMetrics, stepPlinkoBall } from './plinko-physics.js?v=physics-v13-20260812';
 
 const tg = window.Telegram?.WebApp;
 tg?.ready(); tg?.expand();
@@ -653,18 +653,21 @@ function initPlinko() {
       ball.spawnDelay -= dt;
       return;
     }
-    stepPlinkoBall(ball, ball.physicsWidth || boardWidth, ball.physicsHeight || boardHeight, dt);
+    stepPlinkoBall(ball, ball.physicsWidth || boardWidth, ball.physicsHeight || boardHeight, dt, ball.physicsPrepared);
     if (ball.settled) {
       ball.bucket = ball.actualBucket;
       ball.multiplier = PAYOUT_VALUES[ball.bucket];
     }
   }
 
-  function physicsDropBall(result, physicsWidth, physicsHeight) {
+  function physicsDropBall(result, physicsWidth, physicsHeight, physicsPrepared) {
     const ball = createPlinkoBall(physicsWidth, physicsHeight, result.physicsSeed);
     ball.physicsWidth = physicsWidth;
     ball.physicsHeight = physicsHeight;
-    ball.spawnDelay = Math.random() * SPAWN_DELAY_JITTER;
+    // Общий prepared-объект для всех шариков одного броска: геометрия и
+    // колышки одинаковы, а симуляция не пересчитывает их каждый шаг.
+    ball.physicsPrepared = physicsPrepared;
+    ball.spawnDelay = 0;
     ball.multiplier = Number(result.multiplier);
     ball.payout = Number(result.payout);
     balls.push(ball);
@@ -723,6 +726,8 @@ function initPlinko() {
   dropButton.onclick = async () => {
     if (!profile) return toast('Подождите, профиль ещё загружается');
     if (dropping) return;
+    // Момент нажатия — точка отсчёта для спавна шариков.
+    const pressTime = performance.now();
     const bet = Math.max(10, Math.floor(Number(betInput.value) || 10));
     betInput.value = bet;
     dropping = true;
@@ -767,9 +772,21 @@ function initPlinko() {
       }
       pendingTotalPayout = checkedTotalPayout;
       pendingProfile = data.profile;
+      // Геометрия доски и колышки одинаковы для всех шариков броска — готовим
+      // один prepared-объект и передаём его каждому шарику.
+      const metrics = plinkoMetrics(physicsWidth, physicsHeight);
+      const physicsPrepared = {
+        metrics,
+        pegs: plinkoPegs(physicsWidth, physicsHeight),
+        pegRows: plinkoPegRows(physicsWidth, physicsHeight)
+      };
+      // Первый шарик появляется ровно через 0.5с после нажатия, остальные —
+      // с интервалом 450мс. Отсчёт идёт от pressTime, а не от ответа сервера.
       for (const [index, result] of data.results.entries()) {
-        if (index > 0) await new Promise(resolve => setTimeout(resolve, 450));
-        physicsDropBall(result, physicsWidth, physicsHeight);
+        const desiredTime = pressTime + 500 + index * 450;
+        const waitMs = Math.max(0, desiredTime - performance.now());
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+        physicsDropBall(result, physicsWidth, physicsHeight, physicsPrepared);
         if (!animationId) {
           lastTime = performance.now();
           animationId = requestAnimationFrame(animate);
