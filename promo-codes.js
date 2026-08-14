@@ -28,6 +28,7 @@ export const promoCodes = {
   BONK1000: 1000,
   HFDNF25: 25,
   GG50000: 50000,
+  HHH50: 50,
 
   GOSJAH25: 25,
   HDUYEJMD25: 25,
