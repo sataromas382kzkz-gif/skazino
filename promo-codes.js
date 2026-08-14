@@ -29,6 +29,7 @@ export const promoCodes = {
   HFDNF25: 25,
   GG50000: 50000,
   HHH50: 50,
+  CVDVD50: 50,
 
   GOSJAH25: 25,
   HDUYEJMD25: 25,
