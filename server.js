@@ -332,7 +332,7 @@ async function getProfile(tgUser) {
   if (!profile) {
     profile = { id, name: tgUser.first_name || 'Пользователь', registeredAt: Date.now(), stars: 100,
       caseStars: 100, prizeStars: 0, tasks: 0, gifts: { bear: 0, rose: 0 }, giftItems: [], promoCode: '',
-      usedPromoCodes: [], topupLink: 'https://playerok.com/profile/SaharOK086/products', lastDailyAt: null };
+      usedPromoCodes: [], topupLink: 'https://playerok.com/profile/KessyShop/products', lastDailyAt: null };
     await saveUser(profile);
   }
   let changed = false;
@@ -946,7 +946,7 @@ app.post('/api/profile/topup', async (req, res) => {
   let profile;
   try { profile = await getProfile(tgUser); }
   catch (error) { console.error(error); return res.status(503).json({ error: 'База данных временно недоступна' }); }
-  profile.topupLink = 'https://playerok.com/profile/SaharOK086/products';
+  profile.topupLink = 'https://playerok.com/profile/KessyShop/products';
   try { await saveUser(profile); }
   catch (error) { console.error(error); return res.status(503).json({ error: 'Не удалось сохранить профиль' }); }
   res.json({ profile });
