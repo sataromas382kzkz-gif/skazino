@@ -67,7 +67,7 @@ $('daily').onclick=async event=>{
     toast(e.message);
   }
 };
-const TOPUP_LINK='https://playerok.com/profile/SaharOK086/products';
+const TOPUP_LINK='https://playerok.com/profile/KessyShop/products';
 $('profileButton').onclick=()=>{ $('profileModal').classList.add('visible'); $('promoCode').value=''; $('topupLink').value=TOPUP_LINK; $('topupLinkOpen').href=TOPUP_LINK; };
 $('profileModal').addEventListener('click', event=>{ if (event.target === $('profileModal')) $('profileModal').classList.remove('visible'); });
 $('giftsModal').addEventListener('click', event=>{ if (event.target === $('giftsModal')) $('giftsModal').classList.remove('visible'); });
