@@ -47,5 +47,12 @@ export const promoCodes = {
   MMNZZA100: 100,
   HFDJND25: 25,
   DKFJDKFD25: 25,
-  DHFGDBSAA25: 25
+  DHFGDBSAA25: 25,
+  XOXO25: 25
+};
+
+// Лимиты активации для отдельных промокодов (кроме обычного однократного кода).
+// Значение — максимальное количество активаций, после которого код перестаёт работать.
+export const promoActivationLimits = {
+  XOXO25: 200
 };

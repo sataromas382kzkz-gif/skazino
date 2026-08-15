@@ -9,7 +9,7 @@ import { createPool } from '@vercel/postgres';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Telegraf, Markup } from 'telegraf';
-import { promoCodes } from './promo-codes.js';
+import { promoCodes, promoActivationLimits } from './promo-codes.js';
 import { PLINKO_MIN_BET, PLINKO_COEFFICIENT_TENTHS, calculatePlinkoRoundPayout, plinkoResult } from './plinko.js';
 import { simulatePlinkoDrop } from './public/plinko-physics.js';
 
@@ -155,6 +155,15 @@ async function initDatabase() {
       user_id TEXT NOT NULL,
       claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`;
+    // Активности промокодов с общим лимитом активаций хранятся отдельно:
+    // в promo_claims код уникален (одна активация на всех), а здесь код может
+    // активировать много разных пользователей, но не больше заданного лимита.
+    await db.sql`CREATE TABLE IF NOT EXISTS promo_activations (
+      code TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (code, user_id)
+    )`;
     await db.sql`CREATE TABLE IF NOT EXISTS custom_promo_codes (
       code TEXT PRIMARY KEY,
       amount INTEGER NOT NULL CHECK (amount > 0),
@@ -241,7 +250,19 @@ async function createCustomPromoCode(code, amount, createdBy) {
 
 async function claimPromoCode(code, userId) {
   await ensureDatabaseReady();
+  // Коды из promoActivationLimits имеют общий лимит активаций: код разрешает
+  // активацию не более заданного числа раз, и каждый пользователь может
+  // использовать его один раз.
+  const activationLimit = promoActivationLimits[code];
   if (databaseMode === 'postgres') {
+    if (activationLimit != null) {
+      if (await userAlreadyActivatedPromo(code, userId)) return false;
+      const total = await countPromoActivations(code);
+      if (total >= activationLimit) return false;
+      await db.sql`INSERT INTO promo_activations (code, user_id) VALUES (${code}, ${String(userId)})
+        ON CONFLICT (code, user_id) DO NOTHING`;
+      return true;
+    }
     // Учитываем и активации, сделанные до появления таблицы promo_claims.
     const previousUse = await db.sql`SELECT id FROM users
       WHERE id <> ${String(userId)} AND profile->'usedPromoCodes' ? ${code} LIMIT 1`;
@@ -250,10 +271,29 @@ async function claimPromoCode(code, userId) {
       ON CONFLICT (code) DO NOTHING RETURNING code`;
     return result.rowCount === 1;
   }
-  // Локальное хранилище: ищем код во всех профилях, так же как в общей таблице PostgreSQL.
-  return !Object.values(profiles).some(existing =>
-    String(existing.id) !== String(userId) && existing.usedPromoCodes?.includes(code)
-  );
+  // Локальное хранилище: счётчик активаций и использование считаем по профилям,
+  // так же как в общей таблице PostgreSQL.
+  if (Object.values(profiles).some(existing =>
+    String(existing.id) === String(userId) && existing.usedPromoCodes?.includes(code)
+  )) return false;
+  const others = Object.values(profiles).filter(existing => String(existing.id) !== String(userId));
+  if (activationLimit != null) {
+    return others.filter(existing => existing.usedPromoCodes?.includes(code)).length < activationLimit;
+  }
+  return !others.some(existing => existing.usedPromoCodes?.includes(code));
+}
+
+async function countPromoActivations(code) {
+  if (databaseMode === 'postgres') {
+    const result = await db.sql`SELECT COUNT(*)::int AS total FROM promo_activations WHERE code = ${code}`;
+    return Number(result.rows[0]?.total || 0);
+  }
+  return Object.values(profiles).filter(existing => existing.usedPromoCodes?.includes(code)).length;
+}
+
+async function userAlreadyActivatedPromo(code, userId) {
+  const result = await db.sql`SELECT 1 FROM promo_activations WHERE code = ${code} AND user_id = ${String(userId)}`;
+  return result.rowCount > 0;
 }
 
 async function saveUser(profile) {
