@@ -522,10 +522,10 @@ const cases = {
     rewards: [
       { label: '⭐ 10 звёзд', type: 'stars', amount: 10, chance: 50 },
       { label: '⭐ 15 звёзд', type: 'stars', amount: 15, chance: 30 },
-      { label: '🌹 Роза Telegram', type: 'rose', chance: 10 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 14 },
       { label: '🎂 Торт Telegram', type: 'cake', chance: 4 },
-      { label: '💐 Букет Telegram', type: 'bouquet', chance: 3 },
-      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 3 }
+      { label: '💐 Букет Telegram', type: 'bouquet', chance: 1 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 1 }
     ]
   },
   baron: {
@@ -533,12 +533,12 @@ const cases = {
     image: '/case-baron.png',
     price: 75,
     rewards: [
-      { label: '🧸 Мишка Telegram', type: 'bear', chance: 30 },
+      { label: '🧸 Мишка Telegram', type: 'bear', chance: 37 },
       { label: '💝 Сердце Telegram', type: 'heart', chance: 30 },
       { label: '🌹 Роза Telegram', type: 'rose', chance: 20 },
       { label: '🎂 Торт Telegram', type: 'cake', chance: 10 },
-      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 7 },
-      { label: '💍 Кольцо Telegram', type: 'ring', chance: 3 }
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 2 },
+      { label: '💍 Кольцо Telegram', type: 'ring', chance: 1 }
     ]
   },
   star: {
@@ -546,11 +546,11 @@ const cases = {
     image: '/case-major.png',
     price: 100,
     rewards: [
-      { label: '🌹 Роза Telegram', type: 'rose', chance: 50 },
-      { label: '🎂 Торт Telegram', type: 'cake', chance: 20 },
-      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 15 },
-      { label: '💍 Кольцо Telegram', type: 'ring', chance: 10 },
-      { label: '🏆 Кубок Telegram', type: 'cup', chance: 4 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 56 },
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 30 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 8 },
+      { label: '💍 Кольцо Telegram', type: 'ring', chance: 3 },
+      { label: '🏆 Кубок Telegram', type: 'cup', chance: 2 },
       { label: '🍦 NFT-мороженое', type: 'nft-icecream', chance: 1 }
     ]
   },
@@ -559,12 +559,12 @@ const cases = {
     image: '/case-boss.png',
     price: 150,
     rewards: [
-      { label: '🌹 Роза Telegram', type: 'rose', chance: 30 },
-      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 20 },
-      { label: '🎂 Торт Telegram', type: 'cake', chance: 20 },
-      { label: '🏆 Кубок Telegram', type: 'cup', chance: 10 },
-      { label: '💎 Алмаз Telegram', type: 'diamond', chance: 10 },
-      { label: '💍 Кольцо Telegram', type: 'ring', chance: 8 },
+      { label: '🌹 Роза Telegram', type: 'rose', chance: 46 },
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 30 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 8 },
+      { label: '🏆 Кубок Telegram', type: 'cup', chance: 5 },
+      { label: '💎 Алмаз Telegram', type: 'diamond', chance: 5 },
+      { label: '💍 Кольцо Telegram', type: 'ring', chance: 4 },
       { label: '🐍 NFT-змея', type: 'nft-snake', chance: 2 }
     ]
   },
@@ -573,11 +573,11 @@ const cases = {
     image: '/case-star.png',
     price: 200,
     rewards: [
-      { label: '🎂 Торт Telegram', type: 'cake', chance: 35 },
-      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 35 },
-      { label: '💎 Алмаз Telegram', type: 'diamond', chance: 20 },
-      { label: '🍜 NFT-доширак', type: 'nft-doshirak', chance: 5 },
-      { label: '🍭 NFT-леденец', type: 'nft-lollipop', chance: 5 }
+      { label: '🎂 Торт Telegram', type: 'cake', chance: 78 },
+      { label: '🚀 Ракета Telegram', type: 'rocket', chance: 12 },
+      { label: '💎 Алмаз Telegram', type: 'diamond', chance: 6 },
+      { label: '🍜 NFT-доширак', type: 'nft-doshirak', chance: 2 },
+      { label: '🍭 NFT-леденец', type: 'nft-lollipop', chance: 2 }
     ]
   }
 };
