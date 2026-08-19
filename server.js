@@ -126,6 +126,27 @@ function writeLocalCustomPromoCodes() {
   return localPromoWriteQueue;
 }
 
+// Neon на бесплатном тарифе «засыпает» без нагрузки: в это время драйвер
+// @neondatabase/serverless отвечает ошибкой «fetch failed», и сервер временно
+// переходит на локальный файл. Ниже — фоновая проверка: как только постоянная
+// база снова станет доступна, возвращаемся к ней без перезапуска.
+let postgresRetryTimer = null;
+function schedulePostgresRetry() {
+  if (postgresRetryTimer || !databaseConfigured || isVercel) return;
+  postgresRetryTimer = setTimeout(async () => {
+    postgresRetryTimer = null;
+    if (!databaseConfigured || isVercel || databaseMode !== 'local') return;
+    try {
+      // Полная инициализация заново создаст таблицы (при первом сбое они могли
+      // не создаться) и переключит режим обратно на постоянную базу.
+      await initDatabase();
+    } catch (error) {
+      // initDatabase при неудаче сам ставит локальный режим и планирует повтор.
+      console.error(`PostgreSQL всё ещё недоступен (${error.message}); локальная база остаётся`);
+    }
+  }, 15000);
+}
+
 async function initDatabase() {
   // На локальной машине файл удобен для разработки. На Vercel он эфемерный,
   // поэтому при настроенной БД нельзя незаметно переключаться на него.
@@ -198,7 +219,11 @@ async function initDatabase() {
     profiles = await readLocalProfiles();
     await readLocalCustomPromoCodes();
     databaseMode = 'local';
-    console.error(`PostgreSQL недоступен, включена локальная база: ${error.message}`);
+    // Neon «спит» и возвращает ошибку соединения — в фоне пробуем вернуться
+    // к постоянной базе, как только она снова станет доступна.
+    schedulePostgresRetry();
+    const causeMessage = error.cause?.message;
+    console.error(`PostgreSQL недоступен, включена локальная база: ${error.message}${causeMessage && causeMessage !== error.message ? ` (${causeMessage})` : ''}`);
   }
 }
 
