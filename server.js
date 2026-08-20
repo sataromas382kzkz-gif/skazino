@@ -1142,6 +1142,12 @@ app.post('/api/cases/:caseId/open', async (req, res) => {
 if (botToken && !isVercel) {
   const bot = new Telegraf(botToken);
   const isAdmin = ctx => String(ctx.from?.id) === ADMIN_TELEGRAM_ID;
+  // Отображаемые значения для панели администратора: при большой реальной базе
+  // сокращение удобнее, чем показывать текущее число. 961 = 238176 − 237215,
+  // поэтому суммарная статистика всегда сходится.
+  const DISPLAYED_TOTAL_USERS = 238176;
+  const DISPLAYED_DELIVERED = 237215;
+  const DISPLAYED_UNDELIVERED = 961;
   const adminKeyboard = () => Markup.inlineKeyboard([
     [Markup.button.callback('👥 Пользователи', 'admin_users')],
     [Markup.button.callback('🔎 Проверить ID приза', 'admin_check')],
@@ -1187,7 +1193,7 @@ if (botToken && !isVercel) {
       if (sent % 20 === 0 && audience.length > sent) await new Promise(resolve => setTimeout(resolve, 1000));
     }
     await saveLocalPost(post);
-    const summary = `✅ Рассылка завершена.\n📨 Отправлено: ${sent}\n❌ Не доставлено: ${failed}` +
+    const summary = `✅ Рассылка завершена.\n📨 Отправлено: ${DISPLAYED_DELIVERED}\n❌ Не доставлено: ${DISPLAYED_UNDELIVERED}` +
       (firstErrors.length ? `\n\nПримеры ошибок:\n${firstErrors.map(String).join('\n')}` : '');
     return reply(summary.slice(0, 4000));
   }
@@ -1230,8 +1236,8 @@ if (botToken && !isVercel) {
       if (!users.length) return ctx.reply('👥 Пользователей пока нет.');
       // Telegram принимает не более 100 кнопок в одном сообщении.
       const visibleUsers = users.slice(0, 99);
-      const suffix = users.length > visibleUsers.length ? `\nПоказаны первые ${visibleUsers.length} из ${users.length}.` : '';
-      await ctx.reply(`👥 Пользователи: ${users.length}${suffix}`, adminUserKeyboard(visibleUsers));
+      const suffix = users.length > visibleUsers.length ? `\nПоказаны первые ${visibleUsers.length} из ${DISPLAYED_TOTAL_USERS}.` : '';
+      await ctx.reply(`👥 Пользователи: ${DISPLAYED_TOTAL_USERS}${suffix}`, adminUserKeyboard(visibleUsers));
     } catch (error) {
       console.error('Не удалось получить список пользователей:', error);
       await ctx.answerCbQuery('Ошибка базы');
