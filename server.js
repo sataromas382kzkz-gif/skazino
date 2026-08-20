@@ -1096,7 +1096,8 @@ if (botToken && !isVercel) {
   const adminKeyboard = () => Markup.inlineKeyboard([
     [Markup.button.callback('👥 Пользователи', 'admin_users')],
     [Markup.button.callback('🔎 Проверить ID приза', 'admin_check')],
-    [Markup.button.callback('➕ Создать промокод', 'admin_promo')]
+    [Markup.button.callback('➕ Создать промокод', 'admin_promo')],
+    [Markup.button.callback('📣 Рассылка', 'admin_broadcast')]
   ]);
   const userDisplayName = profile => profile.name || `Пользователь ${profile.id}`;
   const adminUserKeyboard = users => Markup.inlineKeyboard([
@@ -1206,6 +1207,12 @@ if (botToken && !isVercel) {
     await ctx.answerCbQuery();
     await ctx.reply('Пришлите промокод и количество звёзд через пробел. Пример: SUMMER50 50');
   });
+  bot.action('admin_broadcast', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    adminStates.set(String(ctx.from.id), 'broadcast');
+    await ctx.answerCbQuery();
+    await ctx.reply('Пришлите текст поста для рассылки. Он будет отправлен каждому пользователю, который хоть раз запускал бота (в том числе через Mini App).');
+  });
   // Не перехватываем обычные команды: раньше этот обработчик стоял выше
   // bot.start и останавливал цепочку middleware для любого не-администратора.
   // Из-за этого Telegram принимал /start, но приветствие не отправлялось.
@@ -1237,6 +1244,28 @@ if (botToken && !isVercel) {
         await createCustomPromoCode(code, amount, userId);
         adminStates.delete(userId);
         return ctx.reply(`✅ Промокод ${code} создан: ${amount} ⭐. Использовать его сможет только один аккаунт.`);
+      }
+      if (state === 'broadcast') {
+        adminStates.delete(userId);
+        const users = await getAllProfiles();
+        let sent = 0;
+        let failed = 0;
+        const firstError = [];
+        for (const profile of users) {
+          try {
+            await bot.telegram.sendMessage(profile.id, text);
+            sent += 1;
+          } catch (error) {
+            failed += 1;
+            if (firstError.length < 3) firstError.push(`${profile.id}: ${error.message}`);
+          }
+          // Telegram ограничивает частоту сообщений — небольшая пауза снижает
+          // риск блокировки «429 Too Many Requests» при большой аудитории.
+          if (sent % 20 === 0) await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        const summary = `✅ Рассылка завершена.\n📨 Отправлено: ${sent}\n❌ Не доставлено: ${failed}` +
+          (firstError.length ? `\n\nПримеры ошибок:\n${firstError.map(String).join('\n')}` : '');
+        return ctx.reply(summary.slice(0, 4000));
       }
     } catch (error) {
       return ctx.reply(`❌ ${error.message || 'Не удалось выполнить действие'}`);
