@@ -61,6 +61,11 @@ const databaseConfigured = Boolean(postgresUrl);
 const db = databaseConfigured ? createPool({ connectionString: postgresUrl }) : null;
 const localDatabasePath = path.join(__dirname, 'data', 'users.json');
 const localPromoCodesPath = path.join(__dirname, 'data', 'custom-promo-codes.json');
+const localPostsPath = path.join(__dirname, 'data', 'broadcasts.json');
+// Сохранённые рассылки: ключ — ID поста, значение — объект с текстом, фото и
+// списком доставленных сообщений (для удаления после отправки).
+const localPosts = new Map();
+let localPostWriteQueue = Promise.resolve();
 let databaseReady;
 let databaseMode = databaseConfigured ? 'postgres' : 'local';
 let databaseInitError = null;
@@ -124,6 +129,50 @@ function writeLocalCustomPromoCodes() {
     await fs.rename(temporaryPath, localPromoCodesPath);
   });
   return localPromoWriteQueue;
+}
+
+function createBroadcastId() {
+  return `POST-${Date.now()}-${crypto.randomInt(1000, 9999)}`;
+}
+
+async function loadLocalPosts() {
+  if (localPosts.size) return;
+  try {
+    const contents = await fs.readFile(localPostsPath, 'utf8');
+    const stored = contents.trim() ? JSON.parse(contents) : {};
+    for (const [id, post] of Object.entries(stored)) localPosts.set(id, post);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    console.error(`Не удалось загрузить сохранённые рассылки: ${error.message}`);
+  }
+}
+
+function writeLocalPosts() {
+  // На Vercel файловая система недоступна для записи — посты останутся только
+  // в памяти процесса (эфемерно). В локальном запуске подробности сохраняем.
+  if (isVercel) return Promise.resolve();
+  localPostWriteQueue = localPostWriteQueue.catch(() => {}).then(async () => {
+    await fs.mkdir(path.dirname(localPostsPath), { recursive: true });
+    const temporaryPath = `${localPostsPath}.${process.pid}.tmp`;
+    await fs.writeFile(temporaryPath, JSON.stringify(Object.fromEntries(localPosts), null, 2), 'utf8');
+    await fs.rename(temporaryPath, localPostsPath);
+  });
+  return localPostWriteQueue;
+}
+
+async function saveLocalPost(post) {
+  localPosts.set(post.id, post);
+  await writeLocalPosts();
+}
+
+async function deleteLocalPost(postId) {
+  localPosts.delete(postId);
+  await writeLocalPosts();
+}
+
+async function getSavedPosts() {
+  await loadLocalPosts();
+  return [...localPosts.values()].sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
 }
 
 // Neon на бесплатном тарифе «засыпает» без нагрузки: в это время драйвер
@@ -1097,8 +1146,57 @@ if (botToken && !isVercel) {
     [Markup.button.callback('👥 Пользователи', 'admin_users')],
     [Markup.button.callback('🔎 Проверить ID приза', 'admin_check')],
     [Markup.button.callback('➕ Создать промокод', 'admin_promo')],
-    [Markup.button.callback('📣 Рассылка', 'admin_broadcast')]
+    [Markup.button.callback('📣 Рассылка', 'admin_broadcast')],
+    [Markup.button.callback('📦 Посты', 'admin_posts')]
   ]);
+  // Только реальные Telegram-аккаунты имеют числовой ID. Служебный локальный
+  // «Демо»-профиль (id='demo') и прочие нечисловые id исключаем из рассылки,
+  // иначе «chat not found» портит отчёт.
+  const adminPostsKeyboard = posts => Markup.inlineKeyboard([
+    ...posts.map(post => [Markup.button.callback(
+      `🗑 ${post.text ? post.text.slice(0, 28) : '(📷 фото поста)'} · ${new Date(post.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`.slice(0, 64),
+      `del_post:${post.id}`
+    )]),
+    [Markup.button.callback('← Назад', 'admin_back')]
+  ]);
+  // Логика рассылки общая для текста и фото: собираем аудиторию, отправляем с
+  // паузами против лимита 429, сохраняем пост и возвращаем отчёт администратору.
+  async function performBroadcast(reply, { text, photoFileId }) {
+    const audience = (await getAllProfiles()).filter(profile => userIsEligibleForBroadcast(profile));
+    const post = {
+      id: createBroadcastId(), text: text || '', photoId: photoFileId || null,
+      title: text ? text.slice(0, 60) : '📷 Фото-пост',
+      createdAt: Date.now(), delivered: [], undelivered: []
+    };
+    let sent = 0;
+    let failed = 0;
+    const firstErrors = [];
+    for (const profile of audience) {
+      const targetId = String(profile.id);
+      try {
+        const message = photoFileId
+          ? await bot.telegram.sendPhoto(targetId, photoFileId, text ? { caption: text } : {})
+          : await bot.telegram.sendMessage(targetId, text);
+        post.delivered.push({ userId: targetId, messageId: message.message_id });
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        post.undelivered.push({ userId: targetId, error: error.message });
+        if (firstErrors.length < 3) firstErrors.push(`${targetId}: ${error.message}`);
+      }
+      if (sent % 20 === 0 && audience.length > sent) await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    await saveLocalPost(post);
+    const summary = `✅ Рассылка завершена.\n📨 Отправлено: ${sent}\n❌ Не доставлено: ${failed}` +
+      (firstErrors.length ? `\n\nПримеры ошибок:\n${firstErrors.map(String).join('\n')}` : '');
+    return reply(summary.slice(0, 4000));
+  }
+  function isUserEligibleForBroadcast(profile) {
+    // Отправлять можно только людям, у которых есть числовой Telegram-идентификатор
+    // (служебный демо-профиль и нечисловые записи исключаем).
+    const id = String(profile?.id || '');
+    return id !== 'demo' && /^\d+$/.test(id);
+  }
   const userDisplayName = profile => profile.name || `Пользователь ${profile.id}`;
   const adminUserKeyboard = users => Markup.inlineKeyboard([
     ...users.map(profile => [Markup.button.callback(
@@ -1211,7 +1309,44 @@ if (botToken && !isVercel) {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
     adminStates.set(String(ctx.from.id), 'broadcast');
     await ctx.answerCbQuery();
-    await ctx.reply('Пришлите текст поста для рассылки. Он будет отправлен каждому пользователю, который хоть раз запускал бота (в том числе через Mini App).');
+    await ctx.reply('Пришлите текст поста для рассылки (можно с фото). Он будет отправлен каждому пользователю, который хоть раз запускал бота (в том числе через Mini App).');
+  });
+  bot.action('admin_posts', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    try {
+      const posts = await getSavedPosts();
+      await ctx.answerCbQuery();
+      if (!posts.length) return ctx.reply('📦 Сохранённых постов пока нет.');
+      await ctx.reply(`📦 Сохранённые рассылки (${posts.length}). Нажмите кнопку, чтобы удалить отправленный пост у всех пользователей:`, adminPostsKeyboard(posts));
+    } catch (error) {
+      console.error('Не удалось получить список постов:', error);
+      await ctx.answerCbQuery('Ошибка хранилища');
+    }
+  });
+  bot.action(/^del_post:(.+)$/, async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Нет доступа');
+    const postId = ctx.match[1];
+    const post = localPosts.get(postId);
+    if (!post) return ctx.answerCbQuery('Пост не найден');
+    let removed = 0;
+    let failed = 0;
+    for (const delivery of post.delivered || []) {
+      try {
+        // Telegram позволяет боту удалять только свои сообщения (до 48 часов).
+        await bot.telegram.deleteMessage(delivery.userId, delivery.messageId);
+        removed += 1;
+      } catch (error) {
+        failed += 1;
+      }
+      if (removed % 20 === 0) await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    await deleteLocalPost(postId);
+    await ctx.answerCbQuery(`Удалено у ${removed}, ошибок ${failed}`);
+    const postsRemaining = await getSavedPosts();
+    if (postsRemaining.length) {
+      return ctx.editMessageText(`📦 Список рассылок (${postsRemaining.length}). Нажмите кнопку, чтобы удалить пост:`, adminPostsKeyboard(postsRemaining));
+    }
+    return ctx.editMessageText('📦 Сохранённых рассылок больше нет.');
   });
   // Не перехватываем обычные команды: раньше этот обработчик стоял выше
   // bot.start и останавливал цепочку middleware для любого не-администратора.
@@ -1247,29 +1382,22 @@ if (botToken && !isVercel) {
       }
       if (state === 'broadcast') {
         adminStates.delete(userId);
-        const users = await getAllProfiles();
-        let sent = 0;
-        let failed = 0;
-        const firstError = [];
-        for (const profile of users) {
-          try {
-            await bot.telegram.sendMessage(profile.id, text);
-            sent += 1;
-          } catch (error) {
-            failed += 1;
-            if (firstError.length < 3) firstError.push(`${profile.id}: ${error.message}`);
-          }
-          // Telegram ограничивает частоту сообщений — небольшая пауза снижает
-          // риск блокировки «429 Too Many Requests» при большой аудитории.
-          if (sent % 20 === 0) await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        const summary = `✅ Рассылка завершена.\n📨 Отправлено: ${sent}\n❌ Не доставлено: ${failed}` +
-          (firstError.length ? `\n\nПримеры ошибок:\n${firstError.map(String).join('\n')}` : '');
-        return ctx.reply(summary.slice(0, 4000));
+        return performBroadcast(reply => ctx.reply(reply), { text });
       }
     } catch (error) {
       return ctx.reply(`❌ ${error.message || 'Не удалось выполнить действие'}`);
     }
+  });
+
+  // Фото-рассылка: администратор может отправить пост с картинкой (и подписью).
+  bot.on('photo', async (ctx, next) => {
+    if (!isAdmin(ctx)) return next();
+    const userId = String(ctx.from.id);
+    if (adminStates.get(userId) !== 'broadcast') return next();
+    adminStates.delete(userId);
+    const photoFileId = ctx.message.photo.at(-1).file_id;
+    const caption = (ctx.message.caption || '').trim();
+    return performBroadcast(replyText => ctx.reply(replyText), { text: caption, photoFileId });
   });
 
   // Ошибки Telegram API (конфликт двух запущенных экземпляров, неверный токен
